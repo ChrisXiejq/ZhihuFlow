@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from redflow.app.config import DirectorConfig
+from redflow.app.director import ContentDirector
+from redflow.content.policy import PolicyGate
+from redflow.content.style import detect_ai_flavor
+from redflow.content.writer import _word_count_zh
+from redflow.core.schemas import ArticlePackage, FeedbackEvent, SourceRef
+from redflow.ops.delivery import EmailDelivery
+from redflow.ops.feedback import FeedbackIngestor
+from redflow.ops.scheduler import DailyScheduler
+from redflow.research.agent import ResearchAgent
+from redflow.research.sources import ResearchScout, StaticSource, TrendScout
+from redflow.research.subagents import ParallelResearchOrchestrator
+from redflow.runtime.sandbox import LocalSandbox, SandboxViolation
+from redflow.storage.memory import MemoryStore
+
+
+def make_director(tmp_path: Path) -> ContentDirector:
+    refs = [
+        SourceRef(title="Context engineering for long-horizon AI agents", url="local://context", source="offline"),
+        SourceRef(title="Agent workflow orchestration and tool contracts", url="local://workflow", source="offline"),
+        SourceRef(title="Evaluation patterns for AI coding agents", url="local://eval", source="offline"),
+    ]
+    source = StaticSource(name="offline", refs=refs)
+    return ContentDirector(
+        memory=MemoryStore(tmp_path / "redflow.sqlite3"),
+        trend_scout=TrendScout([source]),
+        research_agent=ResearchAgent(ResearchScout([source])),
+        parallel_research=ParallelResearchOrchestrator(ResearchScout([source])),
+    )
+
+
+class PipelineTest(unittest.TestCase):
+    def test_pipeline_generates_article_with_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            result = director.run(DirectorConfig(seeds=["context engineering", "AI agent workflow"]))
+
+            self.assertTrue(result.trace_id.startswith("trace_"))
+            self.assertTrue(result.article.body_markdown.startswith("# "))
+            self.assertGreaterEqual(result.article.body_markdown.count("\n## "), 4)
+            self.assertGreaterEqual(_word_count_zh(result.article.body_markdown), 1500)
+            self.assertLessEqual(_word_count_zh(result.article.body_markdown), 2500)
+            self.assertIn("参考来源", result.article.body_markdown)
+            self.assertGreater(result.quality.overall_score, 0)
+            self.assertTrue(result.policy.approved_for_draft)
+            self.assertTrue(result.artifacts["article_markdown"].startswith("art_"))
+            self.assertTrue(result.artifacts["quality_report"].startswith("art_"))
+
+            events = director.memory.events(result.trace_id)
+            event_types = [event["event_type"] for event in events]
+            self.assertIn("workflow.started", event_types)
+            self.assertIn("research.parallel.completed", event_types)
+            self.assertIn("claim_graph.updated", event_types)
+            self.assertIn("quality.evaluated", event_types)
+            self.assertIn("policy.checked", event_types)
+            self.assertGreaterEqual(len(director.memory.claim_edges(result.trace_id)), 1)
+            director.memory.close()
+
+    def test_journal_replay_reuses_completed_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["context engineering"])
+            first = director.run(config, trace_id="trace_replay_test")
+            second = director.run(config, trace_id="trace_replay_test")
+
+            self.assertEqual(first.trace_id, second.trace_id)
+            events = director.memory.events("trace_replay_test")
+            self.assertTrue(any(event["event_type"] == "workflow.step.replayed" for event in events))
+            director.memory.close()
+
+    def test_policy_gate_blocks_absolute_gmv_claim(self) -> None:
+        package = ArticlePackage(
+            topic="Agent",
+            titles=["title"],
+            opening_hook="hook",
+            outline=[],
+            body_markdown="这个系统保证提升 GMV，必爆。",
+            citations=[],
+            commercial_angle="保证转化",
+            cta="无需人工审核",
+            trace_id="trace_test",
+        )
+        report = PolicyGate().review(package)
+
+        self.assertEqual(report.overall_risk.value, "HIGH")
+        self.assertFalse(report.approved_for_draft)
+
+    def test_ai_flavor_detector_flags_template_language(self) -> None:
+        text = "首先，我们需要多维度分析。其次，这具有重要意义。最后，综上所述，需要持续优化。"
+        hits = detect_ai_flavor(text)
+
+        self.assertGreaterEqual(len(hits), 4)
+
+    def test_feedback_ingestor_persists_growth_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "redflow.sqlite3")
+            ingestor = FeedbackIngestor(store)
+            summary = ingestor.ingest(
+                FeedbackEvent(
+                    trace_id="trace_feedback",
+                    article_id="zhihu_1",
+                    views=1000,
+                    likes=30,
+                    favorites=20,
+                    comments=5,
+                    leads=4,
+                    revenue_cents=19900,
+                )
+            )
+
+            self.assertEqual(summary["engagement_rate"], 0.055)
+            self.assertEqual(summary["lead_rate"], 0.004)
+            events = store.events("trace_feedback")
+            self.assertTrue(any(event["event_type"] == "feedback.ingested" for event in events))
+            store.close()
+
+    def test_sandbox_rejects_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sandbox = LocalSandbox(str(Path(tmp) / "sandbox"))
+            artifact = sandbox.write_text("reports/a.md", "hello")
+
+            self.assertEqual(artifact.relative_path, "reports/a.md")
+            with self.assertRaises(SandboxViolation):
+                sandbox.write_text("../escape.md", "bad")
+
+    def test_scheduler_run_once_writes_outputs_without_email(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            scheduler = DailyScheduler(director, EmailDelivery(), output_dir=str(Path(tmp) / "scheduled"))
+            result = scheduler.run_once(DirectorConfig(seeds=["context engineering"]), dry_run_email=True)
+
+            self.assertTrue(Path(result.article_path).exists())
+            self.assertTrue(Path(result.summary_path).exists())
+            self.assertFalse(result.delivery.delivered)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,18 @@
+[project]
+name = "redflow"
+version = "0.1.0"
+description = "AI frontier topic research and Zhihu-style article generation agent."
+requires-python = ">=3.9"
+authors = [{ name = "RedFlow" }]
+dependencies = []
+
+[project.scripts]
+redflow = "redflow.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

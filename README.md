@@ -2,43 +2,186 @@
 
 > 多模态内容增长 Agent：帮助创作者与小团队完成「趋势洞察 → 创意导演 → 内容生产 → 合规审核 → 辅助发布 → 效果复盘」的闭环。
 
-RedFlow 的首个目标平台是小红书，但内核按多平台内容工作流设计。它不是批量发帖或规避平台限制的工具；所有发布均遵循平台授权能力、频控与人工确认策略。
+RedFlow 当前 MVP 聚焦 **AI/LLM/Agent 前沿话题发现 → 证据研究 → 知乎风格技术长文生成 → 合规审查 → Trace 复盘**。它不是批量发帖或规避平台限制的工具；所有发布均遵循平台授权能力、频控与人工确认策略。
+
+## 快速运行
+
+无需 API key 的离线演示：
+
+```bash
+python -m redflow.cli run --offline
+```
+
+运行后会生成：
+
+- `.redflow/latest_article.md`：知乎风格技术文章草稿
+- `.redflow/latest_run.json`：结构化结果、证据、合规报告
+- `.redflow/redflow.sqlite3`：event log、workflow journal、artifacts、claims
+
+查看 Trace：
+
+```bash
+python -m redflow.cli inspect <trace_id>
+```
+
+接入真实 OpenAI-compatible 模型时设置：
+
+```bash
+export REDFLOW_OPENAI_API_KEY="..."
+export REDFLOW_OPENAI_BASE_URL="https://api.openai.com/v1"
+export REDFLOW_OPENAI_MODEL="gpt-4o-mini"
+python -m redflow.cli run --seed "LLM agent" --seed "context engineering"
+```
+
+使用阿里云百炼 / DashScope Qwen，可直接复用 SoloOps 的本地 `.env`，不会把密钥写入 RedFlow：
+
+```bash
+python3 -m redflow.cli \
+  --env-file /Users/bytedance/my/SoloOps/.env \
+  model-check --provider aliyun_bailian
+
+python3 -m redflow.cli \
+  --env-file /Users/bytedance/my/SoloOps/.env \
+  run --seed "AI coding agent memory" --seed "context engineering agent workflow"
+```
+
+更多 Agent 安装与运行规则见 [Install.md](Install.md)。
+
+## DeerFlow-style Harness 设计
+
+RedFlow 参考 DeerFlow 2.0 的 Harness 思路实现了轻量版本：
+
+- **Lead Agent**：`ContentDirector` 是唯一入口，负责计划、委派和收敛。
+- **Skills**：`skills/builtin/*/SKILL.md` 按需加载，包括 deep-research、zhihu-writing、policy-review。
+- **Human Writing**：`human-writing` Skill 专门约束去 AI 味，要求明确判断、具体场景、非对称结构和删除模板套话。
+- **Tools**：`ToolRegistry` 记录工具契约、输入 schema 和风险等级，避免工具能力散落在 prompt 里。
+- **Middleware**：`MiddlewareChain` 在每个 workflow step 前后注入上下文预算和工具风险契约。
+- **Sub-agent Research**：`ParallelResearchOrchestrator` 按论文、工程、社区、商业四个视角并行研究，再合并成一个 ResearchBrief。
+- **Memory**：SQLite 保存 event log、workflow journal、artifacts、claims 和 claim graph；`.redflow/memory.json` 保存长期记忆。
+- **Checkpointer**：`JournaledWorkflow` 支持同一 trace 下的 step replay。
+- **Context Offloading**：当状态过大时写入 briefing，而不是把所有历史塞进模型上下文。
+- **Policy Gate**：发布前检查夸大收益、自动发布、平台规避、引用不足和明显 AI 模板表达等风险。
+- **Quality Eval**：`QualityEvaluator` 对 evidence、human voice、specificity、commercial safety、structure 做确定性评分。
+- **Growth Loop**：`feedback` CLI 写入知乎浏览、赞藏、评论、线索、收入数据，形成 GMV 反馈闭环。
+- **Sandbox**：`LocalSandbox` 为 Skill/Tool artifact 提供受控写入边界，防止路径逃逸。
+
+## 分包结构
+
+`redflow/` 已按产品边界拆分：
+
+```text
+redflow/
+  app/          Director、运行配置、顶层编排
+  content/      Writer、PolicyGate、QualityEvaluator、去 AI 味规则
+  core/         dataclass schemas、journaled workflow
+  models/       Bailian / OpenAI-compatible / deterministic provider
+  ops/          邮件投递、每日调度、知乎反馈写入
+  research/     趋势源、研究 Agent、并行 Sub-agent 研究
+  runtime/      middleware、skills、tools、sandbox
+  storage/      SQLite memory、long-term memory
+```
+
+## 去 AI 味策略
+
+当前写作链路不再把模型输出套进固定模板，而是让模型直接写完整正文，本地只补必要标题和参考来源。`human-writing` Skill 会要求：
+
+- 开头给判断或真实场景，不写泛泛背景。
+- 少用“首先、其次、最后、综上所述”等机械连接词。
+- 每个核心观点落到一个工程细节、具体场景或反例。
+- 允许第一人称判断和取舍，不追求面面俱到。
+- 段落和标题不强求对称，避免咨询报告腔。
+
+文章生成还有硬约束：
+
+- 中文正文目标字数：`1500-2500`。
+- Markdown 格式：必须有 1 个一级标题和至少 4 个二级标题。
+- 文末必须保留 `参考来源`。
+
+## 产品级能力命令
+
+运行一次完整链路，默认开启四视角并行研究：
+
+```bash
+python3 -m redflow.cli run --seed "AI agent harness product memory eval"
+```
+
+查看 claim graph：
+
+```bash
+python3 -m redflow.cli claims trace_xxx
+```
+
+写入知乎增长反馈：
+
+```bash
+python3 -m redflow.cli feedback \
+  --trace-id trace_xxx \
+  --article-id zhihu_article_id \
+  --views 1200 --likes 48 --favorites 36 --comments 9 \
+  --leads 6 --revenue-cents 29900
+```
+
+写入受控 Sandbox artifact：
+
+```bash
+python3 -m redflow.cli sandbox-write reports/demo.txt --content "sandbox artifact ok"
+```
+
+## 每日调度和邮箱投递
+
+RedFlow 当前选择 SMTP 邮件投递作为最稳定的自动化路径。知乎草稿箱没有稳定公开写入接口，直接写草稿箱更容易遇到登录态、风控和页面变更问题。
+
+配置 QQ 邮箱授权码。推荐复制 `.env.example` 到本机 `.env`，再把授权码填进去：
+
+```bash
+cp .env.example .env
+```
+
+`.env.example` 已默认写成：
+
+```bash
+export REDFLOW_EMAIL_FROM="2918614420@qq.com"
+export REDFLOW_EMAIL_TO="2918614420@qq.com"
+export REDFLOW_SMTP_USER="2918614420@qq.com"
+export REDFLOW_SMTP_PASSWORD="邮箱授权码，不是登录密码"
+export REDFLOW_SMTP_HOST="smtp.qq.com"
+export REDFLOW_SMTP_PORT="465"
+```
+
+QQ 邮箱授权码获取路径：登录 QQ 邮箱网页版 -> 设置 -> 账号 -> POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV 服务 -> 开启 `POP3/SMTP服务` 或 `IMAP/SMTP服务` -> 按页面提示验证后生成授权码。
+
+立即跑一次但不发邮件：
+
+```bash
+python3 -m redflow.cli schedule --once --offline --dry-run-email
+```
+
+立即生成并发送邮件：
+
+```bash
+python3 -m redflow.cli --env-file .env \
+  schedule --once
+```
+
+每天 09:00 生成并发送：
+
+```bash
+python3 -m redflow.cli --env-file .env \
+  schedule --daily-at 09:00
+```
 
 ## 项目目标
 
-- 为个人创作者、线下商家和 2–20 人内容团队缩短从热点到可审核内容包的时间。
-- 以 **创意导演 Agent** 统一账号人设、商业目标、热点、剧本和多模态素材。
-- 提供可观测、可评测、可审计的 Agent 工作流，而不是不可控的自动化黑箱。
-
-## 文档导航
-
-| 文档 | 用途 |
-| --- | --- |
-| [项目章程](docs/00-project-charter.md) | 定位、范围、成功标准与约束 |
-| [PRD](docs/01-prd.md) | 用户、场景、需求、页面与验收标准 |
-| [系统架构](docs/02-architecture.md) | 服务划分、数据流、部署与关键决策 |
-| [Agent 与模型设计](docs/03-agent-model-design.md) | 导演 Agent、子 Agent、状态图、Prompt 与模型路由 |
-| [数据与接口设计](docs/04-data-api-design.md) | 核心实体、Schema、API 与事件 |
-| [内容安全与平台合规](docs/05-safety-compliance.md) | 审核、版权、隐私、发布权限与风控 |
-| [评测方案](docs/06-evaluation.md) | 离线基准集、指标、线上观测与发布门禁 |
-| [技术选型](docs/07-technical-stack.md) | 技术栈、替代方案与本地开发环境 |
-| [交付路线图](docs/08-roadmap.md) | 8 周 MVP、迭代与团队分工 |
-| [工程规范](docs/09-engineering-guide.md) | 目录、分支、测试、CI/CD 与 ADR |
-| [演示与面试材料](docs/10-demo-story.md) | Demo 脚本、简历表述与面试问答 |
-| [本地与阿里云部署运行手册](docs/11-deployment-runbook.md) | Compose、ECS、RDS、OSS、Tair、域名、备份与上线检查 |
+- 为个人创作者缩短从热点发现到可审核长文草稿的时间。
+- 以 **Content Director Agent** 统一账号目标、趋势证据、研究 claims、文章结构和商业 CTA。
+- 提供可观测、可评测、可审计、可恢复的 Agent 工作流，而不是不可控的一次性生成脚本。
+- 作为秋招求职项目，展示 Agent runtime、工具契约、event log、context offloading、policy gate 和内容增长场景的工程能力。
 
 ## MVP 边界
 
-首版支持：账号画像、剧本库、素材库、授权/公开趋势导入、图文内容包、视频分镜、合规报告、人工审核、内容日历、草稿导出、执行 Trace 和离线评测。
+首版支持：AI 前沿种子词、公开趋势源、研究证据、claim 抽取、知乎文章草稿、合规报告、草稿导出、执行 Trace、workflow replay 和离线演示。
 
-首版不支持：模拟登录、绕过验证码、批量矩阵发帖、虚假互动、未授权抓取私有内容。
-
-## 建议启动顺序
-
-1. 阅读项目章程、PRD 和架构文档，冻结 MVP 范围。
-2. 按数据与接口设计创建数据库与 API 契约。
-3. 先实现“单条图文内容包 + 人工审核”，再扩展视频、排期与复盘。
-4. 在任何模型调用扩张前，先建立评测集和 Trace。
+首版不支持：模拟登录、绕过验证码、批量矩阵发帖、虚假互动、未授权抓取私有内容、承诺收益或自动发布。
 5. 本地使用 Docker Compose；线上优先采用“ECS 承载应用 + RDS PostgreSQL + OSS + Tair”的托管数据方案。
 
 内容生成
