@@ -140,9 +140,9 @@ cp .env.example .env
 `.env.example` 已默认写成：
 
 ```bash
-export REDFLOW_EMAIL_FROM="2918614420@qq.com"
-export REDFLOW_EMAIL_TO="2918614420@qq.com"
-export REDFLOW_SMTP_USER="2918614420@qq.com"
+export REDFLOW_EMAIL_FROM="your_account@qq.com"
+export REDFLOW_EMAIL_TO="target@example.com"
+export REDFLOW_SMTP_USER="your_account@qq.com"
 export REDFLOW_SMTP_PASSWORD="邮箱授权码，不是登录密码"
 export REDFLOW_SMTP_HOST="smtp.qq.com"
 export REDFLOW_SMTP_PORT="465"

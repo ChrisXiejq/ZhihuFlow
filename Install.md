@@ -129,9 +129,9 @@ Required environment. Copy `.env.example` to `.env`, then fill the QQ Mail autho
 ```bash
 cp .env.example .env
 
-export REDFLOW_EMAIL_FROM="2918614420@qq.com"
-export REDFLOW_EMAIL_TO="2918614420@qq.com"
-export REDFLOW_SMTP_USER="2918614420@qq.com"
+export REDFLOW_EMAIL_FROM="your_account@qq.com"
+export REDFLOW_EMAIL_TO="target@example.com"
+export REDFLOW_SMTP_USER="your_account@qq.com"
 export REDFLOW_SMTP_PASSWORD="QQ Mail authorization code"
 export REDFLOW_SMTP_HOST="smtp.qq.com"
 export REDFLOW_SMTP_PORT="465"
