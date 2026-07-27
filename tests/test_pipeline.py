@@ -4,20 +4,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from redflow.app.config import DirectorConfig
-from redflow.app.director import ContentDirector
-from redflow.content.policy import PolicyGate
-from redflow.content.style import detect_ai_flavor
-from redflow.content.writer import _word_count_zh
-from redflow.core.schemas import ArticlePackage, FeedbackEvent, SourceRef
-from redflow.ops.delivery import EmailDelivery
-from redflow.ops.feedback import FeedbackIngestor
-from redflow.ops.scheduler import DailyScheduler
-from redflow.research.agent import ResearchAgent
-from redflow.research.sources import ResearchScout, StaticSource, TrendScout
-from redflow.research.subagents import ParallelResearchOrchestrator
-from redflow.runtime.sandbox import LocalSandbox, SandboxViolation
-from redflow.storage.memory import MemoryStore
+from zhihuflow.app.config import DirectorConfig
+from zhihuflow.app.director import ContentDirector
+from zhihuflow.content.policy import PolicyGate
+from zhihuflow.content.style import detect_ai_flavor
+from zhihuflow.content.writer import _word_count_zh
+from zhihuflow.core.schemas import ArticlePackage, FeedbackEvent, SourceRef
+from zhihuflow.ops.delivery import EmailDelivery
+from zhihuflow.ops.feedback import FeedbackIngestor
+from zhihuflow.ops.scheduler import DailyScheduler
+from zhihuflow.research.agent import ResearchAgent
+from zhihuflow.research.sources import ResearchScout, StaticSource, TrendScout
+from zhihuflow.research.subagents import ParallelResearchOrchestrator
+from zhihuflow.runtime.sandbox import LocalSandbox, SandboxViolation
+from zhihuflow.storage.memory import MemoryStore
 
 
 def make_director(tmp_path: Path) -> ContentDirector:
@@ -28,7 +28,7 @@ def make_director(tmp_path: Path) -> ContentDirector:
     ]
     source = StaticSource(name="offline", refs=refs)
     return ContentDirector(
-        memory=MemoryStore(tmp_path / "redflow.sqlite3"),
+        memory=MemoryStore(tmp_path / "zhihuflow.sqlite3"),
         trend_scout=TrendScout([source]),
         research_agent=ResearchAgent(ResearchScout([source])),
         parallel_research=ParallelResearchOrchestrator(ResearchScout([source])),
@@ -99,7 +99,7 @@ class PipelineTest(unittest.TestCase):
 
     def test_feedback_ingestor_persists_growth_signal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryStore(Path(tmp) / "redflow.sqlite3")
+            store = MemoryStore(Path(tmp) / "zhihuflow.sqlite3")
             ingestor = FeedbackIngestor(store)
             summary = ingestor.ingest(
                 FeedbackEvent(

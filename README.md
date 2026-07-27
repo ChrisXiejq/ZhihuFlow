@@ -1,46 +1,46 @@
-# RedFlow
+# ZhihuFlow
 
 > 多模态内容增长 Agent：帮助创作者与小团队完成「趋势洞察 → 创意导演 → 内容生产 → 合规审核 → 辅助发布 → 效果复盘」的闭环。
 
-RedFlow 当前 MVP 聚焦 **AI/LLM/Agent 前沿话题发现 → 证据研究 → 知乎风格技术长文生成 → 合规审查 → Trace 复盘**。它不是批量发帖或规避平台限制的工具；所有发布均遵循平台授权能力、频控与人工确认策略。
+ZhihuFlow 当前 MVP 聚焦 **AI/LLM/Agent 前沿话题发现 → 证据研究 → 知乎风格技术长文生成 → 合规审查 → Trace 复盘**。它不是批量发帖或规避平台限制的工具；所有发布均遵循平台授权能力、频控与人工确认策略。
 
 ## 快速运行
 
 无需 API key 的离线演示：
 
 ```bash
-python -m redflow.cli run --offline
+python -m zhihuflow.cli run --offline
 ```
 
 运行后会生成：
 
-- `.redflow/latest_article.md`：知乎风格技术文章草稿
-- `.redflow/latest_run.json`：结构化结果、证据、合规报告
-- `.redflow/redflow.sqlite3`：event log、workflow journal、artifacts、claims
+- `.zhihuflow/latest_article.md`：知乎风格技术文章草稿
+- `.zhihuflow/latest_run.json`：结构化结果、证据、合规报告
+- `.zhihuflow/zhihuflow.sqlite3`：event log、workflow journal、artifacts、claims
 
 查看 Trace：
 
 ```bash
-python -m redflow.cli inspect <trace_id>
+python -m zhihuflow.cli inspect <trace_id>
 ```
 
 接入真实 OpenAI-compatible 模型时设置：
 
 ```bash
-export REDFLOW_OPENAI_API_KEY="..."
-export REDFLOW_OPENAI_BASE_URL="https://api.openai.com/v1"
-export REDFLOW_OPENAI_MODEL="gpt-4o-mini"
-python -m redflow.cli run --seed "LLM agent" --seed "context engineering"
+export ZHIHUFLOW_OPENAI_API_KEY="..."
+export ZHIHUFLOW_OPENAI_BASE_URL="https://api.openai.com/v1"
+export ZHIHUFLOW_OPENAI_MODEL="gpt-4o-mini"
+python -m zhihuflow.cli run --seed "LLM agent" --seed "context engineering"
 ```
 
-使用阿里云百炼 / DashScope Qwen，可直接复用 SoloOps 的本地 `.env`，不会把密钥写入 RedFlow：
+使用阿里云百炼 / DashScope Qwen，可直接复用 SoloOps 的本地 `.env`，不会把密钥写入 ZhihuFlow：
 
 ```bash
-python3 -m redflow.cli \
+python3 -m zhihuflow.cli \
   --env-file /Users/bytedance/my/SoloOps/.env \
   model-check --provider aliyun_bailian
 
-python3 -m redflow.cli \
+python3 -m zhihuflow.cli \
   --env-file /Users/bytedance/my/SoloOps/.env \
   run --seed "AI coding agent memory" --seed "context engineering agent workflow"
 ```
@@ -49,7 +49,7 @@ python3 -m redflow.cli \
 
 ## DeerFlow-style Harness 设计
 
-RedFlow 参考 DeerFlow 2.0 的 Harness 思路实现了轻量版本：
+ZhihuFlow 参考 DeerFlow 2.0 的 Harness 思路实现了轻量版本：
 
 - **Lead Agent**：`ContentDirector` 是唯一入口，负责计划、委派和收敛。
 - **Skills**：`skills/builtin/*/SKILL.md` 按需加载，包括 deep-research、zhihu-writing、policy-review。
@@ -57,7 +57,7 @@ RedFlow 参考 DeerFlow 2.0 的 Harness 思路实现了轻量版本：
 - **Tools**：`ToolRegistry` 记录工具契约、输入 schema 和风险等级，避免工具能力散落在 prompt 里。
 - **Middleware**：`MiddlewareChain` 在每个 workflow step 前后注入上下文预算和工具风险契约。
 - **Sub-agent Research**：`ParallelResearchOrchestrator` 按论文、工程、社区、商业四个视角并行研究，再合并成一个 ResearchBrief。
-- **Memory**：SQLite 保存 event log、workflow journal、artifacts、claims 和 claim graph；`.redflow/memory.json` 保存长期记忆。
+- **Memory**：SQLite 保存 event log、workflow journal、artifacts、claims 和 claim graph；`.zhihuflow/memory.json` 保存长期记忆。
 - **Checkpointer**：`JournaledWorkflow` 支持同一 trace 下的 step replay。
 - **Context Offloading**：当状态过大时写入 briefing，而不是把所有历史塞进模型上下文。
 - **Policy Gate**：发布前检查夸大收益、自动发布、平台规避、引用不足和明显 AI 模板表达等风险。
@@ -67,10 +67,10 @@ RedFlow 参考 DeerFlow 2.0 的 Harness 思路实现了轻量版本：
 
 ## 分包结构
 
-`redflow/` 已按产品边界拆分：
+`zhihuflow/` 已按产品边界拆分：
 
 ```text
-redflow/
+zhihuflow/
   app/          Director、运行配置、顶层编排
   content/      Writer、PolicyGate、QualityEvaluator、去 AI 味规则
   core/         dataclass schemas、journaled workflow
@@ -102,19 +102,19 @@ redflow/
 运行一次完整链路，默认开启四视角并行研究：
 
 ```bash
-python3 -m redflow.cli run --seed "AI agent harness product memory eval"
+python3 -m zhihuflow.cli run --seed "AI agent harness product memory eval"
 ```
 
 查看 claim graph：
 
 ```bash
-python3 -m redflow.cli claims trace_xxx
+python3 -m zhihuflow.cli claims trace_xxx
 ```
 
 写入知乎增长反馈：
 
 ```bash
-python3 -m redflow.cli feedback \
+python3 -m zhihuflow.cli feedback \
   --trace-id trace_xxx \
   --article-id zhihu_article_id \
   --views 1200 --likes 48 --favorites 36 --comments 9 \
@@ -124,12 +124,12 @@ python3 -m redflow.cli feedback \
 写入受控 Sandbox artifact：
 
 ```bash
-python3 -m redflow.cli sandbox-write reports/demo.txt --content "sandbox artifact ok"
+python3 -m zhihuflow.cli sandbox-write reports/demo.txt --content "sandbox artifact ok"
 ```
 
 ## 每日调度和邮箱投递
 
-RedFlow 当前选择 SMTP 邮件投递作为最稳定的自动化路径。知乎草稿箱没有稳定公开写入接口，直接写草稿箱更容易遇到登录态、风控和页面变更问题。
+ZhihuFlow 当前选择 SMTP 邮件投递作为最稳定的自动化路径。知乎草稿箱没有稳定公开写入接口，直接写草稿箱更容易遇到登录态、风控和页面变更问题。
 
 配置 QQ 邮箱授权码。推荐复制 `.env.example` 到本机 `.env`，再把授权码填进去：
 
@@ -140,12 +140,12 @@ cp .env.example .env
 `.env.example` 已默认写成：
 
 ```bash
-export REDFLOW_EMAIL_FROM="your_account@qq.com"
-export REDFLOW_EMAIL_TO="target@example.com"
-export REDFLOW_SMTP_USER="your_account@qq.com"
-export REDFLOW_SMTP_PASSWORD="邮箱授权码，不是登录密码"
-export REDFLOW_SMTP_HOST="smtp.qq.com"
-export REDFLOW_SMTP_PORT="465"
+export ZHIHUFLOW_EMAIL_FROM="your_account@qq.com"
+export ZHIHUFLOW_EMAIL_TO="target@example.com"
+export ZHIHUFLOW_SMTP_USER="your_account@qq.com"
+export ZHIHUFLOW_SMTP_PASSWORD="邮箱授权码，不是登录密码"
+export ZHIHUFLOW_SMTP_HOST="smtp.qq.com"
+export ZHIHUFLOW_SMTP_PORT="465"
 ```
 
 QQ 邮箱授权码获取路径：登录 QQ 邮箱网页版 -> 设置 -> 账号 -> POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV 服务 -> 开启 `POP3/SMTP服务` 或 `IMAP/SMTP服务` -> 按页面提示验证后生成授权码。
@@ -153,20 +153,20 @@ QQ 邮箱授权码获取路径：登录 QQ 邮箱网页版 -> 设置 -> 账号 -
 立即跑一次但不发邮件：
 
 ```bash
-python3 -m redflow.cli schedule --once --offline --dry-run-email
+python3 -m zhihuflow.cli schedule --once --offline --dry-run-email
 ```
 
 立即生成并发送邮件：
 
 ```bash
-python3 -m redflow.cli --env-file .env \
+python3 -m zhihuflow.cli --env-file .env \
   schedule --once
 ```
 
 每天 09:00 生成并发送：
 
 ```bash
-python3 -m redflow.cli --env-file .env \
+python3 -m zhihuflow.cli --env-file .env \
   schedule --daily-at 09:00
 ```
 

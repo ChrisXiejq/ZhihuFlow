@@ -1,13 +1,13 @@
 [project]
-name = "redflow"
+name = "zhihuflow"
 version = "0.1.0"
 description = "AI frontier topic research and Zhihu-style article generation agent."
 requires-python = ">=3.9"
-authors = [{ name = "RedFlow" }]
+authors = [{ name = "ZhihuFlow" }]
 dependencies = []
 
 [project.scripts]
-redflow = "redflow.cli:main"
+zhihuflow = "zhihuflow.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
