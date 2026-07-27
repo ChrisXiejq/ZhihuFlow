@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  background: #07090f;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: #eef5ff;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(85, 245, 255, 0.18), transparent 28rem),
+    radial-gradient(circle at 90% 8%, rgba(248, 210, 106, 0.16), transparent 24rem),
+    radial-gradient(circle at 50% 100%, rgba(118, 93, 255, 0.18), transparent 30rem),
+    #07090f;
+  overflow-x: hidden;
+}
+
+body::after {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  content: "";
+  opacity: 0.05;
+  background-image:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.8) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.65) 1px, transparent 1px);
+  background-size: 37px 37px;
+  mix-blend-mode: screen;
+}
+
+.orbit {
+  position: absolute;
+  border: 1px solid rgba(248, 210, 106, 0.2);
+  border-radius: 9999px;
+  animation: spin 18s linear infinite;
+}
+
+.orbit::after {
+  position: absolute;
+  top: 8%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #f8d26a;
+  box-shadow: 0 0 24px #f8d26a;
+  content: "";
+}
+
+.orbit-a {
+  width: 520px;
+  height: 520px;
+}
+
+.orbit-b {
+  width: 720px;
+  height: 720px;
+  animation-duration: 26s;
+  transform: rotate(22deg);
+}
+
+.scanline {
+  position: absolute;
+  inset: 0;
+  height: 28%;
+  background: linear-gradient(180deg, transparent, rgba(85, 245, 255, 0.13), transparent);
+  animation: scan 4.8s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: translateY(-40%);
+  }
+  50% {
+    opacity: 0.75;
+    transform: translateY(320%);
+  }
+}

@@ -18,6 +18,7 @@ from zhihuflow.research.subagents import ParallelResearchOrchestrator
 from zhihuflow.runtime.sandbox import LocalSandbox
 from zhihuflow.storage.longterm import LongTermMemory
 from zhihuflow.storage.memory import MemoryStore
+from zhihuflow.web.server import WebConsoleConfig, run_web_console
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("model-check", help="Call the configured model with a tiny prompt.")
     check.add_argument("--provider", default=None, help="Provider override: aliyun_bailian, openai-compatible, or mock.")
+
+    web = sub.add_parser("web", help="Launch the local ZhihuFlow web console.")
+    web.add_argument("--host", default="127.0.0.1", help="Web console host.")
+    web.add_argument("--port", type=int, default=8765, help="Web console port.")
+    web.add_argument("--settings", default=".zhihuflow/web_settings.json", help="Web settings JSON path.")
+    web.add_argument("--history", default=".zhihuflow/web_history.json", help="Web history JSON path.")
+    web.add_argument("--out-dir", default=".zhihuflow/web_runs", help="Web-generated article output directory.")
+    web.add_argument("--poll-seconds", type=int, default=20, help="Scheduler polling interval.")
     return parser
 
 
@@ -79,6 +88,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.env_file:
         load_env_file(args.env_file)
+    if args.command == "web":
+        def director_factory(offline: bool) -> ContentDirector:
+            return build_director(MemoryStore(args.db), LongTermMemory(args.memory_file), offline=offline)
+
+        run_web_console(
+            WebConsoleConfig(
+                host=args.host,
+                port=args.port,
+                settings_path=args.settings,
+                history_path=args.history,
+                output_dir=args.out_dir,
+                env_file=None,
+                poll_seconds=args.poll_seconds,
+            ),
+            director_factory,
+        )
+        return 0
     store = MemoryStore(args.db)
     long_term_memory = LongTermMemory(args.memory_file)
     try:

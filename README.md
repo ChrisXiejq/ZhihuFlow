@@ -33,15 +33,15 @@ export ZHIHUFLOW_OPENAI_MODEL="gpt-4o-mini"
 python -m zhihuflow.cli run --seed "LLM agent" --seed "context engineering"
 ```
 
-使用阿里云百炼 / DashScope Qwen，可直接复用 SoloOps 的本地 `.env`，不会把密钥写入 ZhihuFlow：
+使用阿里云百炼 / DashScope Qwen，可通过本地 `.env` 加载配置，不会把密钥写入 ZhihuFlow：
 
 ```bash
 python3 -m zhihuflow.cli \
-  --env-file /Users/bytedance/my/SoloOps/.env \
+  --env-file .env \
   model-check --provider aliyun_bailian
 
 python3 -m zhihuflow.cli \
-  --env-file /Users/bytedance/my/SoloOps/.env \
+  --env-file .env \
   run --seed "AI coding agent memory" --seed "context engineering agent workflow"
 ```
 
@@ -79,6 +79,7 @@ zhihuflow/
   research/     趋势源、研究 Agent、并行 Sub-agent 研究
   runtime/      middleware、skills、tools、sandbox
   storage/      SQLite memory、long-term memory
+  web/          Python Web API、React + TypeScript 前端包、静态构建产物
 ```
 
 ## 去 AI 味策略
@@ -126,6 +127,34 @@ python3 -m zhihuflow.cli feedback \
 ```bash
 python3 -m zhihuflow.cli sandbox-write reports/demo.txt --content "sandbox artifact ok"
 ```
+
+## 本地 Web 控制台
+
+前端源码位于 `zhihuflow/web/frontend/`，使用 React + TypeScript + Tailwind CSS + Radix UI。构建后的静态文件输出到 `zhihuflow/web/static/`，由 Python Web 服务托管。
+
+首次修改前端后构建：
+
+```bash
+cd zhihuflow/web/frontend
+pnpm install
+pnpm run build
+```
+
+启动本地控制台：
+
+```bash
+python3 -m zhihuflow.cli --env-file .env web
+```
+
+打开 `http://127.0.0.1:8765` 后，可以在页面上完成核心操作：
+
+- 开启或关闭每日发文任务。
+- 设置定时发文时间、文章字数范围和搜索主题领域。
+- 选择是否生成后发送到已配置邮箱。
+- 手动触发一次发文任务。
+- 查看历史生成文章、质量分、风险等级和文章预览。
+
+Web 控制台的配置、历史和文章默认写入 `.zhihuflow/web_settings.json`、`.zhihuflow/web_history.json` 和 `.zhihuflow/web_runs/`，这些本地运行数据不会提交到 Git。
 
 ## 每日调度和邮箱投递
 
@@ -182,6 +211,3 @@ python3 -m zhihuflow.cli --env-file .env \
 首版支持：AI 前沿种子词、公开趋势源、研究证据、claim 抽取、知乎文章草稿、合规报告、草稿导出、执行 Trace、workflow replay 和离线演示。
 
 首版不支持：模拟登录、绕过验证码、批量矩阵发帖、虚假互动、未授权抓取私有内容、承诺收益或自动发布。
-5. 本地使用 Docker Compose；线上优先采用“ECS 承载应用 + RDS PostgreSQL + OSS + Tair”的托管数据方案。
-
-内容生成

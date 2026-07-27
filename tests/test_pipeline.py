@@ -18,6 +18,7 @@ from zhihuflow.research.sources import ResearchScout, StaticSource, TrendScout
 from zhihuflow.research.subagents import ParallelResearchOrchestrator
 from zhihuflow.runtime.sandbox import LocalSandbox, SandboxViolation
 from zhihuflow.storage.memory import MemoryStore
+from zhihuflow.web.server import WebConsoleConfig, WebConsoleState
 
 
 def make_director(tmp_path: Path) -> ContentDirector:
@@ -138,6 +139,60 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue(Path(result.article_path).exists())
             self.assertTrue(Path(result.summary_path).exists())
             self.assertFalse(result.delivery.delivered)
+
+    def test_web_console_settings_are_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            state = WebConsoleState(
+                WebConsoleConfig(
+                    settings_path=str(tmp_path / "settings.json"),
+                    history_path=str(tmp_path / "history.json"),
+                    output_dir=str(tmp_path / "runs"),
+                ),
+                lambda offline: make_director(tmp_path),
+            )
+            settings = state.save_settings(
+                {
+                    "schedule_enabled": True,
+                    "email_delivery_enabled": True,
+                    "offline": True,
+                    "daily_at": "08:30",
+                    "seeds": "Agent memory\nAI coding agent",
+                    "min_chars": 600,
+                    "max_chars": 700,
+                }
+            )
+
+            self.assertTrue(settings["schedule_enabled"])
+            self.assertTrue(settings["email_delivery_enabled"])
+            self.assertTrue(settings["offline"])
+            self.assertEqual(settings["daily_at"], "08:30")
+            self.assertEqual(settings["seeds"], ["Agent memory", "AI coding agent"])
+            self.assertEqual(settings["min_chars"], 800)
+            self.assertEqual(settings["max_chars"], 800)
+
+    def test_web_console_reads_history_article_inside_output_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            output_dir = tmp_path / "runs"
+            output_dir.mkdir()
+            article_path = output_dir / "trace_demo.md"
+            article_path.write_text("# demo", encoding="utf-8")
+            history_path = tmp_path / "history.json"
+            history_path.write_text(
+                '[{"trace_id":"trace_demo","article_path":"' + str(article_path) + '"}]',
+                encoding="utf-8",
+            )
+            state = WebConsoleState(
+                WebConsoleConfig(
+                    settings_path=str(tmp_path / "settings.json"),
+                    history_path=str(history_path),
+                    output_dir=str(output_dir),
+                ),
+                lambda offline: make_director(tmp_path),
+            )
+
+            self.assertEqual(state.article_text("trace_demo"), "# demo")
 
 
 if __name__ == "__main__":

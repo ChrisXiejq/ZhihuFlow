@@ -54,11 +54,11 @@ Run a local Agent system that searches AI frontier topics, builds an evidence-ba
 
    ```bash
    python3 -m zhihuflow.cli \
-     --env-file /Users/bytedance/my/SoloOps/.env \
+     --env-file .env \
      model-check --provider aliyun_bailian
 
    python3 -m zhihuflow.cli \
-     --env-file /Users/bytedance/my/SoloOps/.env \
+     --env-file .env \
      run --seed "AI coding agent memory"
    ```
 
@@ -82,6 +82,7 @@ zhihuflow/
   research/              Sources, research agent, parallel subagents
   runtime/               Middleware, sandbox, skills, tools
   storage/               SQLite memory and long-term memory
+  web/                   Python Web API, React TypeScript frontend, static build output
 skills/
   builtin/
     deep-research/
@@ -119,6 +120,35 @@ python3 -m zhihuflow.cli feedback \
 # Write a controlled artifact. Path escapes are rejected.
 python3 -m zhihuflow.cli sandbox-write reports/demo.txt --content "sandbox artifact ok"
 ```
+
+## Local Web Console
+
+Frontend source is under `zhihuflow/web/frontend/` and uses React + TypeScript + Tailwind CSS + Radix UI. Build output is written to `zhihuflow/web/static/` and served by the Python web command.
+
+After frontend changes, build it with:
+
+```bash
+cd zhihuflow/web/frontend
+pnpm install
+pnpm run build
+```
+
+Launch the local console:
+
+```bash
+python3 -m zhihuflow.cli --env-file .env web
+```
+
+Then open `http://127.0.0.1:8765`. The console supports:
+
+- toggling the daily generation task
+- setting the daily time and article length range
+- editing search topic seeds
+- choosing whether to send generated drafts by email
+- triggering a generation run immediately
+- viewing generated article history and Markdown previews
+
+By default, console state is stored under `.zhihuflow/web_settings.json`, `.zhihuflow/web_history.json`, and `.zhihuflow/web_runs/`.
 
 ## Daily Schedule And Email Delivery
 
@@ -161,7 +191,6 @@ python3 -m zhihuflow.cli --env-file .env schedule --daily-at 09:00
 
 - [ ] Add more trend sources for Product Hunt, GitHub trending, arXiv categories, and curated RSS.
 - [ ] Add post-publish analytics import for Zhihu metrics.
-- [ ] Add a web UI over the same memory store.
 - [ ] Add eval golden sets for title quality, citation quality, and policy risk.
 
 ## EXECUTE NOW
