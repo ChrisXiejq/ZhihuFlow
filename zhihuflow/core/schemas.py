@@ -81,6 +81,52 @@ class ResearchBrief:
 
 
 @dataclass
+class MaterialCard:
+    title: str
+    summary: str
+    material_type: str
+    evidence_ids: list[str]
+    use_case: str
+    confidence: float
+    risk_note: str = ""
+    card_id: str = field(default_factory=lambda: new_id("mat"))
+
+
+@dataclass
+class MaterialBoard:
+    topic: str
+    cards: list[MaterialCard]
+    clusters: dict[str, list[str]]
+    gaps: list[str]
+    board_id: str = field(default_factory=lambda: new_id("board"))
+
+
+@dataclass
+class ArticleSectionPlan:
+    heading: str
+    purpose: str
+    material_card_ids: list[str]
+    required_elements: list[str] = field(default_factory=list)
+    section_id: str = field(default_factory=lambda: new_id("section"))
+
+
+@dataclass
+class ArticleBlueprint:
+    topic: str
+    title_candidates: list[str]
+    core_thesis: str
+    opening_strategy: str
+    sections: list[ArticleSectionPlan]
+    code_plans: list[str]
+    diagram_plan: str
+    table_plan: str
+    analogy: str
+    cta: str
+    discussion_question: str
+    blueprint_id: str = field(default_factory=lambda: new_id("blueprint"))
+
+
+@dataclass
 class ArticlePackage:
     topic: str
     titles: list[str]
@@ -92,6 +138,17 @@ class ArticlePackage:
     cta: str
     trace_id: str
     package_id: str = field(default_factory=lambda: new_id("pkg"))
+
+
+@dataclass
+class EditorialReport:
+    passed: bool
+    ai_flavor_hits: list[str]
+    structure_notes: list[str]
+    missing_elements: list[str]
+    revision_suggestions: list[str]
+    editor_version: str = "editor-agent-v1"
+    report_id: str = field(default_factory=lambda: new_id("edit"))
 
 
 @dataclass
@@ -126,6 +183,17 @@ class QualityReport:
 
 
 @dataclass
+class DistributionPlan:
+    zhihu_titles: list[str]
+    zhihu_summary: str
+    xiaohongshu_post: str
+    social_post: str
+    cover_prompt: str
+    review_checklist: list[str]
+    plan_id: str = field(default_factory=lambda: new_id("dist"))
+
+
+@dataclass
 class FeedbackEvent:
     trace_id: str
     article_id: str
@@ -154,7 +222,11 @@ class AgentRunResult:
     trace_id: str
     trend: TrendCard
     research: ResearchBrief
+    materials: MaterialBoard
+    blueprint: ArticleBlueprint
     article: ArticlePackage
+    editorial: EditorialReport
     quality: QualityReport
     policy: PolicyReport
+    distribution: DistributionPlan
     artifacts: dict[str, str]

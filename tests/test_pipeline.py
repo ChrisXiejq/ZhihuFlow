@@ -4,11 +4,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from zhihuflow.agents.architecture import ArchitectureAgent
+from zhihuflow.agents.distribution import DistributionAgent
+from zhihuflow.agents.editor import EditorAgent
+from zhihuflow.agents.material import MaterialAgent
 from zhihuflow.app.config import DirectorConfig
 from zhihuflow.app.director import ContentDirector
 from zhihuflow.content.policy import PolicyGate
 from zhihuflow.content.style import detect_ai_flavor
-from zhihuflow.content.writer import _word_count_zh
+from zhihuflow.content.writer import _has_technical_blog_elements, _word_count_zh
 from zhihuflow.core.schemas import ArticlePackage, FeedbackEvent, SourceRef
 from zhihuflow.ops.delivery import EmailDelivery
 from zhihuflow.ops.feedback import FeedbackIngestor
@@ -43,11 +47,16 @@ class PipelineTest(unittest.TestCase):
             result = director.run(DirectorConfig(seeds=["context engineering", "AI agent workflow"]))
 
             self.assertTrue(result.trace_id.startswith("trace_"))
+            self.assertGreaterEqual(len(result.materials.cards), 1)
+            self.assertGreaterEqual(len(result.blueprint.sections), 4)
+            self.assertTrue(result.editorial.revision_suggestions)
+            self.assertGreaterEqual(len(result.distribution.review_checklist), 4)
             self.assertTrue(result.article.body_markdown.startswith("# "))
             self.assertGreaterEqual(result.article.body_markdown.count("\n## "), 4)
             self.assertGreaterEqual(_word_count_zh(result.article.body_markdown), 1500)
             self.assertLessEqual(_word_count_zh(result.article.body_markdown), 2500)
             self.assertIn("参考来源", result.article.body_markdown)
+            self.assertTrue(_has_technical_blog_elements(result.article.body_markdown))
             self.assertGreater(result.quality.overall_score, 0)
             self.assertTrue(result.policy.approved_for_draft)
             self.assertTrue(result.artifacts["article_markdown"].startswith("art_"))
@@ -57,10 +66,18 @@ class PipelineTest(unittest.TestCase):
             event_types = [event["event_type"] for event in events]
             self.assertIn("workflow.started", event_types)
             self.assertIn("research.parallel.completed", event_types)
+            self.assertIn("material_agent.completed", event_types)
+            self.assertIn("architecture_agent.completed", event_types)
+            self.assertIn("editor_agent.completed", event_types)
+            self.assertIn("distribution_agent.completed", event_types)
             self.assertIn("claim_graph.updated", event_types)
             self.assertIn("quality.evaluated", event_types)
             self.assertIn("policy.checked", event_types)
             self.assertGreaterEqual(len(director.memory.claim_edges(result.trace_id)), 1)
+            self.assertIn("material_board", result.artifacts)
+            self.assertIn("article_blueprint", result.artifacts)
+            self.assertIn("editorial_report", result.artifacts)
+            self.assertIn("distribution_plan", result.artifacts)
             director.memory.close()
 
     def test_journal_replay_reuses_completed_steps(self) -> None:
@@ -139,6 +156,28 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue(Path(result.article_path).exists())
             self.assertTrue(Path(result.summary_path).exists())
             self.assertFalse(result.delivery.delivered)
+
+    def test_multi_agent_outputs_are_structured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["context engineering"])
+            trend = director.trend_scout.discover(["context engineering"])[0]
+            research = director.parallel_research.build_brief(trend, config.audience, config.max_sources)
+            materials = MaterialAgent().build_board(trend, research)
+            blueprint = ArchitectureAgent().design(trend, research, materials, config)
+            article = director.writer.write(trend, research, "trace_agent_unit", config, blueprint, materials)
+            editorial = EditorAgent().review(article, blueprint)
+            quality = director.quality_evaluator.evaluate(article, research)
+            policy = director.policy.review(article)
+            distribution = DistributionAgent().prepare(article, quality, policy, editorial)
+
+            self.assertGreaterEqual(len(materials.cards), 1)
+            self.assertTrue(blueprint.code_plans)
+            self.assertTrue(blueprint.diagram_plan)
+            self.assertTrue(editorial.revision_suggestions)
+            self.assertTrue(distribution.zhihu_summary)
+            self.assertTrue(distribution.review_checklist)
+            director.memory.close()
 
     def test_web_console_settings_are_normalized(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

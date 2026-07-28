@@ -2,7 +2,7 @@
 
 > 多模态内容增长 Agent：帮助创作者与小团队完成「趋势洞察 → 创意导演 → 内容生产 → 合规审核 → 辅助发布 → 效果复盘」的闭环。
 
-ZhihuFlow 当前 MVP 聚焦 **AI/LLM/Agent 前沿话题发现 → 证据研究 → 知乎风格技术长文生成 → 合规审查 → Trace 复盘**。它不是批量发帖或规避平台限制的工具；所有发布均遵循平台授权能力、频控与人工确认策略。
+ZhihuFlow 当前聚焦 **AI/LLM/Agent 前沿话题发现 → 素材整理 → 证据研究 → 文章架构 → 技术写作 → 编辑审查 → 合规风控 → 分发准备 → Trace 复盘**。它不是批量发帖或规避平台限制的工具；所有发布均遵循平台授权能力、频控与人工确认策略。
 
 ## 快速运行
 
@@ -65,12 +65,44 @@ ZhihuFlow 参考 DeerFlow 2.0 的 Harness 思路实现了轻量版本：
 - **Growth Loop**：`feedback` CLI 写入知乎浏览、赞藏、评论、线索、收入数据，形成 GMV 反馈闭环。
 - **Sandbox**：`LocalSandbox` 为 Skill/Tool artifact 提供受控写入边界，防止路径逃逸。
 
+## Multi-Agent Content OS
+
+ZhihuFlow 现在按“内容生产操作系统”的方向拆成多个专职 Agent：
+
+```mermaid
+flowchart LR
+  A[Trend Agent] --> B[Research Agent]
+  B --> C[Material Agent]
+  C --> D[Architecture Agent]
+  D --> E[Writing Agent]
+  E --> F[Editor Agent]
+  F --> G[Risk Agent]
+  G --> H[Distribution Agent]
+```
+
+每个 Agent 都有明确的结构化产物，并写入 SQLite artifacts：
+
+| Agent | 产物 | 作用 |
+| --- | --- | --- |
+| Material Agent | `material_board` | 把来源和 claim 整理成可写素材卡片 |
+| Architecture Agent | `article_blueprint` | 规划标题、主线、章节、代码、图表、表格和 CTA |
+| Writing Agent | `article_markdown` | 按素材和蓝图生成知乎技术长文 |
+| Editor Agent | `editorial_report` | 检查 AI 味、结构缺口和技术元素缺失 |
+| Risk Agent | `policy_report` | 检查夸大收益、自动发布、证据不足等风险 |
+| Distribution Agent | `distribution_plan` | 生成知乎摘要、小红书短文、封面 prompt 和人工审核 checklist |
+
+详细产品和技术方案见：
+
+- `.trae/documents/multi_agent_content_os_prd.md`
+- `.trae/documents/multi_agent_content_os_technical.md`
+
 ## 分包结构
 
 `zhihuflow/` 已按产品边界拆分：
 
 ```text
 zhihuflow/
+  agents/       Material、Architecture、Editor、Distribution Agent
   app/          Director、运行配置、顶层编排
   content/      Writer、PolicyGate、QualityEvaluator、去 AI 味规则
   core/         dataclass schemas、journaled workflow

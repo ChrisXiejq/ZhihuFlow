@@ -4,7 +4,7 @@ import re
 from typing import Any, Optional
 
 from zhihuflow.app.config import DirectorConfig
-from zhihuflow.core.schemas import ArticlePackage, ResearchBrief, TrendCard
+from zhihuflow.core.schemas import ArticleBlueprint, ArticlePackage, MaterialBoard, ResearchBrief, TrendCard, to_jsonable
 from zhihuflow.models.providers import ModelProvider, default_model
 from zhihuflow.runtime.skills import SkillRegistry
 from zhihuflow.runtime.tools import ToolRegistry, build_default_tool_registry
@@ -25,8 +25,16 @@ class ZhihuWriter:
         self.tool_registry = tool_registry or build_default_tool_registry()
         self.memory = memory
 
-    def write(self, trend: TrendCard, research: ResearchBrief, trace_id: str, config: DirectorConfig) -> ArticlePackage:
-        titles = [
+    def write(
+        self,
+        trend: TrendCard,
+        research: ResearchBrief,
+        trace_id: str,
+        config: DirectorConfig,
+        blueprint: Optional[ArticleBlueprint] = None,
+        materials: Optional[MaterialBoard] = None,
+    ) -> ArticlePackage:
+        titles = (blueprint.title_candidates[:3] if blueprint else []) or [
             f"{trend.topic}：为什么它会是下一轮 AI 产品的分水岭？",
             f"别再只盯模型了，{_short_topic(trend.topic)} 真正拼的是工程系统",
             f"我为什么认为 {_short_topic(trend.topic)} 会影响 AI 求职和产品机会",
@@ -36,6 +44,9 @@ class ZhihuWriter:
         skill_brief = "\n\n".join(skill.brief() for skill in self.skill_registry.load_many(["zhihu-writing", "human-writing", "deep-research"]))
         tool_contracts = json_dumps_compact(self.tool_registry.contracts())
         memory_brief = self.memory.briefing() if self.memory else ""
+        technical_blog_requirements = _technical_blog_requirements(trend.topic, config)
+        blueprint_brief = json_dumps_compact(to_jsonable(blueprint)) if blueprint else "未提供文章蓝图。"
+        material_brief = _material_brief(materials) if materials else "未提供素材板。"
         prompt = (
             f"话题：{trend.topic}\n"
             f"目标读者：{research.audience}\n"
@@ -48,6 +59,9 @@ class ZhihuWriter:
             f"按需加载的 Skills：\n{skill_brief}\n"
             f"证据：\n{source_lines}\n"
             f"Claims：\n{claim_lines}\n"
+            f"\n顶级技术博客写作要求：\n{technical_blog_requirements}\n"
+            f"\nArchitecture Agent 文章蓝图：\n{blueprint_brief}\n"
+            f"\nMaterial Agent 素材板摘要：\n{material_brief}\n"
             "\n写作任务：生成一篇完整的知乎风格技术文章。\n"
             "硬性要求：\n"
             "1. 只输出 Markdown 文章正文，不输出原文分析、优化策略、自检说明。\n"
@@ -56,7 +70,12 @@ class ZhihuWriter:
             "4. 开头 200 字内必须出现一个明确判断或具体场景，不要泛泛介绍背景。\n"
             "5. 每个核心观点至少落到一个具体场景、工程细节或反例。\n"
             "6. 商业转化只做克制 CTA，不承诺收益。\n"
-            "7. 文末保留“参考来源”二级标题，列出 evidence_id、标题和链接。"
+            "7. 文末保留“参考来源”二级标题，列出 evidence_id、标题和链接。\n"
+            "8. 必须包含 2-3 个关键代码片段，使用带语言标识的 Markdown 代码块，并解释代码作用。\n"
+            "9. 必须包含至少 1 个 Mermaid 或 PlantUML 图，解释架构、数据流或核心概念。\n"
+            "10. 必须包含 1 个 Markdown 总结表格，用来对比方案、阶段或关键配置。\n"
+            "11. 必须使用至少 1 个生活化比喻解释复杂概念，但不要写得油腻或过度营销。\n"
+            "12. 如果提供了文章蓝图，必须优先遵守蓝图中的 core_thesis、sections、code_plans、diagram_plan 和 table_plan。"
         )
         generated = self.model.generate(
             system=(
@@ -72,7 +91,7 @@ class ZhihuWriter:
             topic=trend.topic,
             titles=titles,
             opening_hook=f"如果只把 {trend.topic} 理解成一个新名词，大概率会错过它背后的工程机会。",
-            outline=[
+            outline=[section.heading for section in blueprint.sections] if blueprint else [
                 "先给结论：这不是概念热，而是工程边界变化",
                 "为什么现在发生：趋势证据与技术动因",
                 "核心架构：搜索、记忆、工具契约、工作流与评测",
@@ -82,7 +101,7 @@ class ZhihuWriter:
             body_markdown=body,
             citations=research.sources[:8],
             commercial_angle="用高质量技术长文建立专业可信度，再把读者导向可交付的咨询、课程、工具模板或项目展示。",
-            cta="如果你正在做 AI Agent 项目，可以先从一条可回放的 event log 和一份可审计的 evidence table 开始，而不是先堆模型调用。",
+            cta=blueprint.cta if blueprint else "如果你正在做 AI Agent 项目，可以先从一条可回放的 event log 和一份可审计的 evidence table 开始，而不是先堆模型调用。",
             trace_id=trace_id,
         )
 
@@ -90,7 +109,11 @@ class ZhihuWriter:
         body = strip_model_meta(generated).strip()
         if not body.startswith("# "):
             body = f"# {trend.topic}\n\n{body}"
-        if _word_count_zh(body) < config.target_min_chars or not _has_required_markdown_structure(body):
+        if (
+            _word_count_zh(body) < config.target_min_chars
+            or not _has_required_markdown_structure(body)
+            or not _has_technical_blog_elements(body)
+        ):
             body = self._fallback_structured_article(trend, research, config)
         if "## 参考来源" not in body and "参考来源" not in body:
             body = f"{body.rstrip()}\n\n## 参考来源\n\n{_citation_lines(research)}\n"
@@ -133,6 +156,53 @@ class ZhihuWriter:
 
 这个结构比“搜一下然后让模型写”重得多，但它解决了真实使用里的问题。每天生成文章时，系统不会只给你一个 Markdown 文件，而是同时留下 trace、质量分、policy finding、证据图谱和后续反馈入口。你可以复盘为什么选这个题，为什么文章被判为证据不足，为什么某类标题转化更好。
 
+```mermaid
+flowchart LR
+  A[TrendScout] --> B[Parallel Research]
+  B --> C[Claim Graph]
+  C --> D[ZhihuWriter]
+  D --> E[QualityEvaluator]
+  E --> F[PolicyGate]
+  F --> G[Email Draft]
+```
+
+把它类比成厨房会更直观：TrendScout 像采购员，ResearchAgent 像备菜师，Claim Graph 是食材标签，Writer 才是厨师。如果食材来源不清楚，再厉害的厨师也只能做出一盘看起来很香、但没人敢放心吃的菜。
+
+## 三段代码看懂核心工程骨架
+
+第一段代码是任务配置。它把主题、读者和长度边界明确下来，避免每次生成都靠临场发挥。
+
+```python
+config = DirectorConfig(
+    seeds=["context engineering", "AI agent workflow"],
+    target_min_chars=1500,
+    target_max_chars=2500,
+)
+```
+
+第二段代码是一次可回放运行。`trace_id` 很关键，它相当于给每次 Agent 运行贴上工单号，后续事件、文章、质量报告和 claim graph 都能按它追溯。
+
+```python
+director = ContentDirector(memory=MemoryStore(".zhihuflow/zhihuflow.sqlite3"))
+result = director.run(config, trace_id="trace_daily_ai_agent")
+print(result.article.body_markdown)
+```
+
+第三段代码是策略门禁。我的经验是，内容 Agent 不能只会生成，还要知道什么时候该拦住自己。
+
+```python
+report = PolicyGate().review(result.article)
+if not report.approved_for_draft:
+    raise RuntimeError(report.findings[0].message)
+```
+
+| 模块 | 解决的问题 | 没有它会怎样 |
+| --- | --- | --- |
+| event log | 记录每一步发生了什么 | 失败后只能重跑，无法复盘 |
+| claim graph | 绑定观点和证据 | 文章容易出现无来源判断 |
+| quality eval | 给内容质量打分 | 好坏只能凭感觉 |
+| policy gate | 拦截夸大和风险表达 | 容易写出不适合发布的内容 |
+
 ## 对求职项目来说，复杂度要落在正确地方
 
 如果只是做一个套壳写作工具，面试时很难讲出技术深度。真正值得展示的是 Harness：workflow replay、context offloading、tool contract、sandbox artifact、quality eval、feedback loop。这些模块能说明你不是只会调 API，而是在把 LLM 应用做成工程系统。
@@ -144,6 +214,22 @@ class ZhihuWriter:
 提升 GMV 这件事不能包装成确定性结果。更可信的说法是：ZhihuFlow 提升的是选题研究效率、证据组织能力、内容一致性和复盘速度。最终转化仍然取决于账号定位、产品供给、读者信任和分发环境。
 
 所以我会把 CTA 写得克制一点：如果读者正在做 Agent 项目，可以先从 event log、evidence table 和 claim graph 开始，而不是先堆模型调用。这种表达不会显得急着卖东西，但会让真正有需求的人知道你有可交付能力。
+
+## 如果你今天就想动手，我建议这样开始
+
+第一步，不要急着写复杂 Agent。先把一次内容生成拆成五个明确阶段：选题、研究、写作、评估、投递。每个阶段只做一件事，并把输入输出保存下来。这样做的好处是很实际的：哪怕模型今天写得不好，你也知道问题出在研究材料不足、prompt 表达不清，还是质量门禁太松。
+
+第二步，给每个结论加上证据编号。很多内容系统失败，不是因为模型不会写，而是因为系统不知道“这句话从哪里来”。一旦读者质疑，作者只能回头翻聊天记录。把 claim 和 evidence 绑定之后，文章就从“灵感输出”变成了“可审计资产”。
+
+第三步，再加入人工审核。自动化最容易让人兴奋，也最容易让账号冒险。我的做法是让 Agent 负责搜索、整理、初稿和自检，人负责最终判断。这个边界看起来慢一点，但更适合长期运营，也更适合作为一个可信的工程项目展示。
+
+## 最后，把复杂度花在可复盘的地方
+
+回到最开始的问题：{trend.topic} 的价值，不是让我们少写几行 prompt，而是逼着我们重新设计 LLM 应用的运行时。一个真正能工作的内容 Agent，应该说得清楚自己为什么选这个题、证据来自哪里、哪一步失败了、文章为什么通过或没有通过审核。
+
+如果你准备在下一个项目里实践，我建议从最小的三件事开始：记录 event log，保存 evidence table，再给每个输出加一个 policy check。等这三件事稳定之后，再考虑并行研究、长期记忆和 Web 控制台。
+
+关于 {trend.topic}，你有没有遇到过更反直觉的工程问题？比如工具调用失控、证据难以追踪、或者生成内容看起来正确但经不起追问。欢迎把你的场景写下来，我们可以继续拆。
 
 ## 参考来源
 
@@ -161,12 +247,39 @@ def _short_topic(topic: str) -> str:
 
 
 def _word_count_zh(text: str) -> int:
-    text = re.sub(r"`[^`]+`", "", text)
+    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    text = re.sub(r"`[^`\n]+`", "", text)
     return len(re.findall(r"[\u4e00-\u9fff]|[A-Za-z0-9]+", text))
 
 
 def _has_required_markdown_structure(text: str) -> bool:
     return bool(re.search(r"^# ", text, flags=re.MULTILINE)) and len(re.findall(r"^## ", text, flags=re.MULTILINE)) >= 4
+
+
+def _has_technical_blog_elements(text: str) -> bool:
+    code_blocks = re.findall(r"```[A-Za-z0-9_+-]+\n", text)
+    has_diagram = bool(re.search(r"```(?:mermaid|plantuml)\n", text, flags=re.IGNORECASE))
+    has_table = bool(re.search(r"^\|.+\|\n\|[-: |]+\|", text, flags=re.MULTILINE))
+    return len(code_blocks) >= 2 and has_diagram and has_table
+
+
+def _technical_blog_requirements(topic: str, config: DirectorConfig) -> str:
+    return f"""角色：你是一位在 AI Agent、LLM 应用工程和内容自动化领域有十年以上经验的资深技术专家，也是一位写作成熟的技术博主。
+任务：围绕“{topic}”写一篇深度与易读性兼备的技术博客，读者包括初学者和有经验的开发者。
+风格：权威但亲切，像导师和读者对话；语言清晰简洁，必要术语必须解释；多用“我/我们”的经验判断；避免空泛口号。
+结构：标题要清晰有吸引力；引言 1-2 个短段落，用痛点或问题开场，并说明读者读完能解决什么；正文采用“提出问题 -> 分析问题 -> 给出方案”的层次；段落要短。
+核心元素：必须包含 2-3 个带语言标识的代码块；必须包含 Mermaid 或 PlantUML 图；必须包含一个生活化比喻；必须包含一个 Markdown 总结表格；结尾要总结 takeaways、给出行动建议，并用开放问题引导讨论。
+边界：整篇文章仍要控制在中文 {config.target_min_chars}-{config.target_max_chars} 字附近；图表、代码和表格必须服务论证，不要为了堆元素而堆元素。"""
+
+
+def _material_brief(materials: MaterialBoard) -> str:
+    lines = []
+    for card in materials.cards[:10]:
+        evidence = ",".join(card.evidence_ids[:3]) or "no_evidence"
+        lines.append(f"- [{card.material_type}] {card.title}: {card.summary} evidence={evidence} confidence={card.confidence:.2f}")
+    if materials.gaps:
+        lines.append("素材缺口：" + "；".join(materials.gaps[:4]))
+    return "\n".join(lines)
 
 
 def _expand_to_min_chars(body: str, trend: TrendCard, research: ResearchBrief, min_chars: int) -> str:

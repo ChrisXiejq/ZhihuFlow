@@ -2,7 +2,7 @@
 
 ## Goal
 
-Run a local Agent system that searches AI frontier topics, builds an evidence-backed research brief, and generates a Zhihu-style technical article draft with traceable sources and policy checks.
+Run a local Multi-Agent content system that searches AI frontier topics, builds evidence-backed research, organizes material cards, designs an article blueprint, generates a Zhihu-style technical article draft, reviews it, and prepares human-reviewed distribution assets.
 
 ## Success Criteria
 
@@ -74,6 +74,7 @@ Run a local Agent system that searches AI frontier topics, builds an evidence-ba
 
 ```text
 zhihuflow/
+  agents/                Material, architecture, editor, distribution agents
   app/                   Director and run configuration
   content/               Writer, policy, quality eval, human-writing style
   core/                  Schemas and journaled workflow
@@ -99,7 +100,32 @@ Article output constraints:
 
 - Chinese article length target: `1500-2500` characters/word-like units.
 - Markdown output must include one `#` title and at least four `##` sections.
+- Technical blog output must include code snippets, a Mermaid/PlantUML diagram, and a Markdown summary table.
 - The final section must include references.
+
+## Multi-Agent Chain
+
+The default run now executes a journaled multi-agent chain:
+
+```text
+discover_trends
+  -> choose_trend
+  -> research
+  -> build_material_board
+  -> design_article_blueprint
+  -> write_article
+  -> edit_article
+  -> evaluate_quality
+  -> policy_check
+  -> prepare_distribution
+```
+
+The new intermediate artifacts are stored in SQLite:
+
+- `material_board`
+- `article_blueprint`
+- `editorial_report`
+- `distribution_plan`
 
 ## Product Harness Commands
 
