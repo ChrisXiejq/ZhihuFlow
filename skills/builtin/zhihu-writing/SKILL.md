@@ -8,13 +8,13 @@ Generate a credible Zhihu-style technical article that can build professional tr
 
 - Start with a clear judgment.
 - Explain mechanism before giving advice.
-- Use evidence IDs for technical claims.
+- Use internal evidence to support technical claims, but never expose evidence IDs, URLs, or reference lists in the public article.
 - Make the commercial CTA soft and trust-building.
 - Do not promise virality, guaranteed GMV, or effortless income.
 - Preserve a risk-boundary section.
 - Do not use a fixed report template. The structure should follow the topic.
 - Prefer one sharp angle over broad coverage.
-- Keep citations, but do not make the article read like a research report.
+- Keep evidence in the internal trace, not in the reader-facing draft.
 
 ## Article Shape
 
@@ -22,13 +22,12 @@ Generate a credible Zhihu-style technical article that can build professional tr
 - Opening judgment or scene
 - Why this matters now
 - Technical mechanism with concrete examples
-- Architecture or data-flow diagram when the topic has system complexity.
-- 2-3 short code snippets when explaining implementation-level ideas. Each snippet must be introduced and explained.
+- Architecture or data-flow explanation when the topic has system complexity. Do not output Mermaid or PlantUML.
+- Code snippets are optional. Add them only when the topic needs schema, algorithm, API, or critical interface details.
 - One concise analogy for the hardest concept, grounded in daily life.
 - One Markdown summary table for tradeoffs, stages, modules, or key settings.
 - What the reader can do
 - Risk boundary
-- References
 
 ## Top Technical Blog Requirements
 
@@ -38,9 +37,9 @@ When the article is meant to read like a top-tier technical blog, follow this st
 - Audience: make it useful for both beginners and experienced developers.
 - Introduction: use 1-2 short paragraphs. Start with a concrete pain point, surprising fact, or sharp question. Then state the problem and the value of reading the article.
 - Body: prefer "problem -> analysis -> solution". Keep paragraphs short. Each section should advance the argument, not just decorate the page.
-- Code: include 2-3 syntax-highlighted Markdown code blocks for the key implementation ideas. Explain what each snippet does before and after the block.
-- Diagram: include at least one Mermaid or PlantUML diagram for architecture, data flow, or a core concept.
+- Code: include code only when it is necessary to explain schema, algorithm, API, or critical engineering interface. Do not add code for conceptual topics.
+- Diagram: do not output Mermaid or PlantUML. Use prose or Markdown tables for structure.
 - Analogy: explain one complex concept through a daily-life analogy.
 - Table: include one Markdown table to summarize tradeoffs, stages, modules, or key configuration.
 - Conclusion: summarize the most important takeaways, give one practical next action, and end with an open question that invites discussion.
-- Constraint: keep the article credible and evidence-based. Do not add diagrams, code, or tables that are unrelated to the argument.
+- Constraint: keep the article credible and evidence-based. Do not add diagrams, code, or tables that are unrelated to the argument. Do not expose internal evidence IDs, URLs, or reference sections.

@@ -141,6 +141,37 @@ class ArticlePackage:
 
 
 @dataclass
+class RuntimeAttachment:
+    name: str
+    content: str
+    source: str
+    priority: int = 50
+
+
+@dataclass
+class ContextPack:
+    topic: str
+    attachments: list[RuntimeAttachment]
+    selected_skills: list[str]
+    offloaded_items: list[str]
+    budget_chars: int
+    estimated_chars: int
+    pack_id: str = field(default_factory=lambda: new_id("ctx"))
+
+
+@dataclass
+class HarnessReport:
+    context_pack_id: str
+    selected_skills: list[str]
+    attachments: list[str]
+    context_budget_chars: int
+    estimated_context_chars: int
+    offloaded_items: list[str]
+    borrowed_patterns: list[str]
+    report_id: str = field(default_factory=lambda: new_id("harness"))
+
+
+@dataclass
 class EditorialReport:
     passed: bool
     ai_flavor_hits: list[str]
@@ -229,4 +260,5 @@ class AgentRunResult:
     quality: QualityReport
     policy: PolicyReport
     distribution: DistributionPlan
+    harness: HarnessReport
     artifacts: dict[str, str]

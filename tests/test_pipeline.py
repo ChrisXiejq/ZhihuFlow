@@ -20,7 +20,10 @@ from zhihuflow.ops.scheduler import DailyScheduler
 from zhihuflow.research.agent import ResearchAgent
 from zhihuflow.research.sources import ResearchScout, StaticSource, TrendScout, infer_topic, make_trend_card
 from zhihuflow.research.subagents import ParallelResearchOrchestrator
+from zhihuflow.runtime.context import ContextPacker
 from zhihuflow.runtime.sandbox import LocalSandbox, SandboxViolation
+from zhihuflow.runtime.skills import SkillRegistry
+from zhihuflow.runtime.tools import build_default_tool_registry
 from zhihuflow.storage.memory import MemoryStore
 from zhihuflow.web.server import WebConsoleConfig, WebConsoleState
 
@@ -87,6 +90,11 @@ class PipelineTest(unittest.TestCase):
             self.assertIn("article_blueprint", result.artifacts)
             self.assertIn("editorial_report", result.artifacts)
             self.assertIn("distribution_plan", result.artifacts)
+            self.assertIn("context_pack", result.artifacts)
+            self.assertIn("harness_report", result.artifacts)
+            self.assertIn("progressive_skill_loading", result.harness.borrowed_patterns)
+            self.assertIn("attachment_context_injection", result.harness.borrowed_patterns)
+            self.assertGreaterEqual(len(result.harness.selected_skills), 3)
             director.memory.close()
 
     def test_journal_replay_reuses_completed_steps(self) -> None:
@@ -149,6 +157,11 @@ class PipelineTest(unittest.TestCase):
         topic = infer_topic("Agent workflow orchestration and tool contracts", "Multi Agent")
 
         self.assertEqual(topic, "Multi Agent")
+
+    def test_explicit_product_seed_is_not_swallowed_by_coding_rule(self) -> None:
+        topic = infer_topic("AI coding agent runtime", "Claude Code Agent Harness 设计优势")
+
+        self.assertEqual(topic, "Claude Code Agent Harness 设计优势")
 
     def test_feedback_ingestor_persists_growth_signal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -311,6 +324,56 @@ class PipelineTest(unittest.TestCase):
             self.assertNotIn("Dynamic Workflow", article.body_markdown)
             self.assertNotIn("Agent Workflow 编排正在替代单次 Prompt 工程", article.body_markdown)
             self.assertTrue(any("Multi Agent" in heading for heading in headings))
+            director.memory.close()
+
+    def test_skill_registry_selects_topic_playbooks_without_code_branch(self) -> None:
+        registry = SkillRegistry()
+
+        harness_skills = registry.select_for_topic("Claude Code 源码解析与 Agent Harness 工程")
+        subagent_skills = registry.select_for_topic("如何设计 Coordinator + Specialist + Critic 的多 Agent 架构")
+
+        self.assertIn("agent-harness-engineering", harness_skills)
+        self.assertIn("subagent-orchestration", subagent_skills)
+        self.assertIn("Skill Meta List", registry.attachment_for_topic("Claude Code", harness_skills))
+
+    def test_context_packer_builds_attachments_and_microcompact_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["Claude Code Agent Harness"])
+            trend = make_trend_card(
+                "Claude Code Agent Harness 的工程设计",
+                [SourceRef(title="Claude Code prompt caching and skills", url="local://claude-code", source="offline")],
+            )
+            research = director.parallel_research.build_brief(trend, config.audience, config.max_sources)
+            materials = MaterialAgent().build_board(trend, research)
+            blueprint = ArchitectureAgent().design(trend, research, materials, config)
+            packer = ContextPacker(SkillRegistry(), build_default_tool_registry(), budget_chars=2500)
+            pack = packer.build(trend, research, materials, blueprint)
+
+            self.assertIn("agent-harness-engineering", pack.selected_skills)
+            self.assertTrue(any(attachment.name == "skill_meta_list" for attachment in pack.attachments))
+            self.assertTrue(any(attachment.name == "material_microcompact" for attachment in pack.attachments))
+            self.assertLessEqual(pack.estimated_chars, pack.budget_chars + 800)
+            director.memory.close()
+
+    def test_harness_playbook_changes_fallback_argument(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["Claude Code Agent Harness 设计优势"])
+            trend = make_trend_card(
+                "Claude Code Agent Harness 设计优势",
+                [SourceRef(title="Claude Code prompt caching and skills", url="local://claude-code", source="offline")],
+            )
+            research = director.parallel_research.build_brief(trend, config.audience, config.max_sources)
+            materials = MaterialAgent().build_board(trend, research)
+            blueprint = ArchitectureAgent().design(trend, research, materials, config)
+            pack = ContextPacker(SkillRegistry(), build_default_tool_registry()).build(trend, research, materials, blueprint)
+            article = director.writer.write(trend, research, "trace_harness_playbook", config, blueprint, materials, pack)
+
+            self.assertIn("Agent Loop", article.body_markdown)
+            self.assertIn("Context Pack", article.body_markdown)
+            self.assertIn("Harness Report", article.body_markdown)
+            self.assertNotRegex(article.body_markdown, r"Harnes(?!s)")
             director.memory.close()
 
     def test_web_console_settings_are_normalized(self) -> None:

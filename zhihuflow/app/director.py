@@ -15,8 +15,10 @@ from zhihuflow.core.schemas import (
     ArticleBlueprint,
     ArticlePackage,
     ArticleSectionPlan,
+    ContextPack,
     DistributionPlan,
     EditorialReport,
+    HarnessReport,
     MaterialBoard,
     MaterialCard,
     PolicyFinding,
@@ -26,6 +28,7 @@ from zhihuflow.core.schemas import (
     ResearchBrief,
     ResearchClaim,
     RiskLevel,
+    RuntimeAttachment,
     SourceRef,
     TrendCard,
     to_jsonable,
@@ -34,6 +37,7 @@ from zhihuflow.core.workflow import JournaledWorkflow, RuntimeContext
 from zhihuflow.research.agent import ResearchAgent
 from zhihuflow.research.sources import ResearchScout, TrendScout
 from zhihuflow.research.subagents import ParallelResearchOrchestrator
+from zhihuflow.runtime.context import ContextPacker
 from zhihuflow.runtime.middleware import ContextBudgetMiddleware, MiddlewareChain, ToolRiskMiddleware
 from zhihuflow.runtime.skills import SkillRegistry
 from zhihuflow.runtime.tools import ToolRegistry, build_default_tool_registry
@@ -104,6 +108,16 @@ class ContentDirector:
             ),
         )
         workflow.add_step(
+            "assemble_context_pack",
+            lambda ctx, state: self._context_pack(
+                ctx,
+                _trend_from_payload(state["choose_trend"]),
+                _research_from_payload(state["research"]),
+                _materials_from_payload(state["build_material_board"]),
+                _blueprint_from_payload(state["design_article_blueprint"]),
+            ),
+        )
+        workflow.add_step(
             "write_article",
             lambda ctx, state: self._write(
                 ctx,
@@ -112,6 +126,7 @@ class ContentDirector:
                 config,
                 _blueprint_from_payload(state["design_article_blueprint"]),
                 _materials_from_payload(state["build_material_board"]),
+                _context_pack_from_payload(state["assemble_context_pack"]),
             ),
         )
         workflow.add_step(
@@ -141,6 +156,13 @@ class ContentDirector:
                 _editorial_from_payload(state["edit_article"]),
             ),
         )
+        workflow.add_step(
+            "harness_report",
+            lambda ctx, state: self._harness_report(
+                ctx,
+                _context_pack_from_payload(state["assemble_context_pack"]),
+            ),
+        )
         state = workflow.run({"config": to_jsonable(config)})
         trend = _trend_from_payload(state["choose_trend"])
         research = _research_from_payload(state["research"])
@@ -151,6 +173,7 @@ class ContentDirector:
         quality = _quality_from_payload(state["evaluate_quality"])
         policy = _policy_from_payload(state["policy_check"])
         distribution = _distribution_from_payload(state["prepare_distribution"])
+        harness = _harness_from_payload(state["harness_report"])
         artifacts = {artifact.kind: artifact.artifact_id for artifact in self.memory.artifacts(workflow.trace_id)}
         if self.long_term_memory:
             self.long_term_memory.remember_run(article.topic, workflow.trace_id, policy.overall_risk.value, len(research.sources))
@@ -165,6 +188,7 @@ class ContentDirector:
             quality=quality,
             policy=policy,
             distribution=distribution,
+            harness=harness,
             artifacts=artifacts,
         )
 
@@ -212,6 +236,29 @@ class ContentDirector:
         ctx.event("architecture_agent.completed", {"sections": len(blueprint.sections), "titles": len(blueprint.title_candidates)})
         return to_jsonable(blueprint)
 
+    def _context_pack(
+        self,
+        ctx: RuntimeContext,
+        trend: TrendCard,
+        research: ResearchBrief,
+        materials: MaterialBoard,
+        blueprint: ArticleBlueprint,
+    ) -> dict[str, Any]:
+        packer = ContextPacker(self.skill_registry, self.tool_registry)
+        pack = packer.build(trend, research, materials, blueprint)
+        self.memory.put_artifact(ctx.trace_id, "context_pack", trend.topic, pack)
+        ctx.event(
+            "context_pack.assembled",
+            {
+                "pack_id": pack.pack_id,
+                "skills": pack.selected_skills,
+                "attachments": [attachment.name for attachment in pack.attachments],
+                "estimated_chars": pack.estimated_chars,
+                "offloaded": pack.offloaded_items,
+            },
+        )
+        return to_jsonable(pack)
+
     def _write(
         self,
         ctx: RuntimeContext,
@@ -220,8 +267,9 @@ class ContentDirector:
         config: DirectorConfig,
         blueprint: ArticleBlueprint,
         materials: MaterialBoard,
+        context_pack: ContextPack,
     ) -> dict[str, Any]:
-        article = self.writer.write(trend, research, ctx.trace_id, config, blueprint=blueprint, materials=materials)
+        article = self.writer.write(trend, research, ctx.trace_id, config, blueprint=blueprint, materials=materials, context_pack=context_pack)
         self.memory.put_artifact(ctx.trace_id, "article_markdown", article.titles[0], article)
         ctx.event("article.created", {"package_id": article.package_id, "title": article.titles[0], "model": self.writer.model.model_id})
         return to_jsonable(article)
@@ -256,6 +304,26 @@ class ContentDirector:
         self.memory.put_artifact(ctx.trace_id, "distribution_plan", article.topic, plan)
         ctx.event("distribution_agent.completed", {"titles": len(plan.zhihu_titles), "checklist": len(plan.review_checklist)})
         return to_jsonable(plan)
+
+    def _harness_report(self, ctx: RuntimeContext, context_pack: ContextPack) -> dict[str, Any]:
+        report = HarnessReport(
+            context_pack_id=context_pack.pack_id,
+            selected_skills=context_pack.selected_skills,
+            attachments=[attachment.name for attachment in context_pack.attachments],
+            context_budget_chars=context_pack.budget_chars,
+            estimated_context_chars=context_pack.estimated_chars,
+            offloaded_items=context_pack.offloaded_items,
+            borrowed_patterns=[
+                "progressive_skill_loading",
+                "attachment_context_injection",
+                "microcompact_material_summary",
+                "static_first_dynamic_last_prompting",
+                "journaled_workflow_replay",
+            ],
+        )
+        self.memory.put_artifact(ctx.trace_id, "harness_report", "Claude Code inspired harness report", report)
+        ctx.event("harness_report.created", {"patterns": report.borrowed_patterns, "skills": report.selected_skills})
+        return to_jsonable(report)
 
 
 def _source_from_payload(payload: dict[str, Any]) -> SourceRef:
@@ -299,6 +367,16 @@ def _blueprint_from_payload(payload: dict[str, Any]) -> ArticleBlueprint:
     return ArticleBlueprint(**data)
 
 
+def _runtime_attachment_from_payload(payload: dict[str, Any]) -> RuntimeAttachment:
+    return RuntimeAttachment(**payload)
+
+
+def _context_pack_from_payload(payload: dict[str, Any]) -> ContextPack:
+    data = dict(payload)
+    data["attachments"] = [_runtime_attachment_from_payload(item) for item in data.get("attachments", [])]
+    return ContextPack(**data)
+
+
 def _article_from_payload(payload: dict[str, Any]) -> ArticlePackage:
     data = dict(payload)
     data["citations"] = [_source_from_payload(ref) for ref in data.get("citations", [])]
@@ -326,3 +404,7 @@ def _quality_from_payload(payload: dict[str, Any]) -> QualityReport:
 
 def _distribution_from_payload(payload: dict[str, Any]) -> DistributionPlan:
     return DistributionPlan(**payload)
+
+
+def _harness_from_payload(payload: dict[str, Any]) -> HarnessReport:
+    return HarnessReport(**payload)

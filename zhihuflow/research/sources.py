@@ -180,11 +180,11 @@ def infer_topic(title: str, seed: str) -> str:
         return "Context Engineering 正在成为 Agent 系统的新基础设施"
     if "rag" in seed_lowered:
         return "Agentic RAG 从检索增强走向可评测工作流"
-    if "coding" in seed_lowered or "code agent" in seed_lowered:
-        return "AI Coding Agent 正在从工具调用进化到工程运行时"
     seed_topic = _topic_from_explicit_seed(seed)
     if seed_topic:
         return seed_topic
+    if "coding" in seed_lowered or "code agent" in seed_lowered:
+        return "AI Coding Agent 正在从工具调用进化到工程运行时"
     if "context" in lowered and ("agent" in lowered or "llm" in lowered):
         return "Context Engineering 正在成为 Agent 系统的新基础设施"
     if "rag" in lowered and ("agent" in lowered or "evaluation" in lowered):

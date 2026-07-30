@@ -4,8 +4,9 @@ import re
 from typing import Any, Optional
 
 from zhihuflow.app.config import DirectorConfig
-from zhihuflow.core.schemas import ArticleBlueprint, ArticlePackage, MaterialBoard, ResearchBrief, TrendCard, to_jsonable
+from zhihuflow.core.schemas import ArticleBlueprint, ArticlePackage, ContextPack, MaterialBoard, ResearchBrief, TrendCard, to_jsonable
 from zhihuflow.models.providers import ModelProvider, default_model
+from zhihuflow.runtime.context import context_pack_to_prompt
 from zhihuflow.runtime.skills import SkillRegistry
 from zhihuflow.runtime.tools import ToolRegistry, build_default_tool_registry
 from zhihuflow.storage.longterm import LongTermMemory
@@ -33,6 +34,7 @@ class ZhihuWriter:
         config: DirectorConfig,
         blueprint: Optional[ArticleBlueprint] = None,
         materials: Optional[MaterialBoard] = None,
+        context_pack: Optional[ContextPack] = None,
     ) -> ArticlePackage:
         titles = (blueprint.title_candidates[:3] if blueprint else []) or [
             f"{trend.topic}：为什么它会是下一轮 AI 产品的分水岭？",
@@ -41,12 +43,14 @@ class ZhihuWriter:
         ]
         source_lines = "\n".join(f"- [{ref.evidence_id}] {ref.title} ({ref.source}) {ref.url}" for ref in research.sources[:8])
         claim_lines = "\n".join(f"- {claim.claim} evidence={claim.evidence_ids} confidence={claim.confidence}" for claim in research.claims)
-        skill_brief = "\n\n".join(skill.brief() for skill in self.skill_registry.load_many(["zhihu-writing", "human-writing", "deep-research"]))
+        selected_skills = context_pack.selected_skills if context_pack else self.skill_registry.select_for_topic(trend.topic)
+        skill_brief = "\n\n".join(skill.brief() for skill in self.skill_registry.load_many(selected_skills))
         tool_contracts = json_dumps_compact(self.tool_registry.contracts())
         memory_brief = self.memory.briefing() if self.memory else ""
         technical_blog_requirements = _technical_blog_requirements(trend.topic, config)
         blueprint_brief = json_dumps_compact(to_jsonable(blueprint)) if blueprint else "未提供文章蓝图。"
         material_brief = _material_brief(materials) if materials else "未提供素材板。"
+        dynamic_context = context_pack_to_prompt(context_pack) if context_pack else "未提供动态上下文包。"
         prompt = (
             f"话题：{trend.topic}\n"
             f"目标读者：{research.audience}\n"
@@ -57,6 +61,7 @@ class ZhihuWriter:
             f"可用工具契约：{tool_contracts}\n"
             f"长期记忆：\n{memory_brief}\n"
             f"按需加载的 Skills：\n{skill_brief}\n"
+            f"Claude-Code-inspired 动态上下文包：\n{dynamic_context}\n"
             f"内部研究材料，仅用于校验事实，不要在正文展示 evidence_id、URL 或参考来源列表：\n{source_lines}\n"
             f"内部 Claims，仅用于帮助判断主线，不要逐条照抄到正文：\n{claim_lines}\n"
             f"\n顶级技术博客写作要求：\n{technical_blog_requirements}\n"
@@ -86,7 +91,7 @@ class ZhihuWriter:
             prompt=prompt,
             temperature=0.72,
         )
-        body = self._finalize_article(trend, research, generated, config, trace_id)
+        body = self._finalize_article(trend, research, generated, config, trace_id, context_pack)
         return ArticlePackage(
             topic=trend.topic,
             titles=titles,
@@ -105,7 +110,15 @@ class ZhihuWriter:
             trace_id=trace_id,
         )
 
-    def _finalize_article(self, trend: TrendCard, research: ResearchBrief, generated: str, config: DirectorConfig, trace_id: str) -> str:
+    def _finalize_article(
+        self,
+        trend: TrendCard,
+        research: ResearchBrief,
+        generated: str,
+        config: DirectorConfig,
+        trace_id: str,
+        context_pack: Optional[ContextPack] = None,
+    ) -> str:
         body = strip_model_meta(generated).strip()
         if not body.startswith("# "):
             body = f"# {trend.topic}\n\n{body}"
@@ -114,12 +127,20 @@ class ZhihuWriter:
             or not _has_required_markdown_structure(body)
             or not _has_academic_depth_elements(body)
         ):
-            body = self._fallback_structured_article(trend, research, config, trace_id)
+            body = self._fallback_structured_article(trend, research, config, trace_id, context_pack)
         body = _strip_public_references(body)
         return _trim_to_max_chars(body, config.target_max_chars)
 
-    def _fallback_structured_article(self, trend: TrendCard, research: ResearchBrief, config: DirectorConfig, trace_id: str) -> str:
+    def _fallback_structured_article(
+        self,
+        trend: TrendCard,
+        research: ResearchBrief,
+        config: DirectorConfig,
+        trace_id: str,
+        context_pack: Optional[ContextPack] = None,
+    ) -> str:
         profile = _topic_profile(trend.topic, trace_id)
+        profile = _apply_skill_profile(profile, trend.topic, context_pack)
         academic = _academic_frame(trend.topic)
         claim_text = _public_claim_paragraphs(trend, research)
         body = f"""# {profile['title_prefix']}：{profile['title_suffix']}
@@ -212,6 +233,68 @@ def _topic_profile(topic: str, diversity_key: str = "") -> dict[str, str]:
     if "rag" in lowered or "检索" in topic:
         return _with_profile_variant(_rag_profile(topic), topic, diversity_key)
     return _with_profile_variant(_adaptive_topic_profile(topic), topic, diversity_key)
+
+
+def _apply_skill_profile(profile: dict[str, str], topic: str, context_pack: Optional[ContextPack]) -> dict[str, str]:
+    if not context_pack:
+        return profile
+    selected = set(context_pack.selected_skills)
+    updated = dict(profile)
+    if "agent-harness-engineering" in selected:
+        short = _short_topic(topic)
+        updated.update(
+            {
+                "title_suffix": "真正的价值在 Agent Loop 之外",
+                "opening_scene": f"讨论 {short} 时，很多人会先看模型输出和工具调用。但真正决定系统能不能长期工作的，往往不是那一轮回答，而是回答背后的 Harness：上下文怎么组织，工具怎么授权，失败怎么恢复，结果怎么审计。",
+                "opening_judgment": "我更关心的是这件事：Agent Loop 本身并不神秘，难的是 loop 外围那套确定性基础设施。没有这些基础设施，系统只能做演示，很难进入稳定生产。",
+                "why_heading": "为什么真正复杂度不在 Agent Loop 里",
+                "why_body": "一次 Agent Loop 可以被概括成模型调用、工具执行、结果回填。这个循环并不复杂，复杂的是每一轮调用之前要放入什么上下文、工具能不能执行、旧结果要不要保留、失败以后从哪里恢复。",
+                "problem_heading": "Harness 要解决的是系统治理问题",
+                "problem_body": "一个可用的 Agent Harness 至少要处理上下文预算、工具契约、权限门禁、子 Agent 隔离、运行日志、质量评估和人工接管。这些模块看起来不如模型能力性感，但它们决定系统能不能解释自己的行为。",
+                "problem_close": "所以分析这类系统时，不能只问模型会不会做，而要问系统是否知道自己为什么这样做、用了哪些材料、哪些动作被允许、失败后如何复盘。",
+                "architecture_heading": "我会把 Harness 拆成六层",
+                "architecture_body": "第一层是 Context Pack，负责目标、约束、证据和历史的组织；第二层是 Tool Contract，定义工具能力、输入输出和风险；第三层是 Permission Gate，决定工具能否执行；第四层是 SubAgent Isolation，把探索过程隔离出去；第五层是 Journal Replay，保存每一步状态；第六层是 Quality Gate，阻止低质量或高风险结果进入交付。",
+                "architecture_tradeoff": "这套架构的代价是实现复杂度更高，但换来的是可调试、可复盘和可治理。对真实产品来说，这比一次生成更重要。",
+                "analogy": "Agent Loop 像发动机，Harness 像整辆车的刹车、仪表盘、导航和安全带。发动机决定能不能跑，Harness 决定能不能安全、稳定、可控地跑很久。",
+                "hard_part_heading": "真正难的是把非确定性包进确定性边界",
+                "hard_part_body": "LLM 的输出天然带有不确定性。Harness 的任务不是消灭不确定性，而是把不确定性限制在可观察、可回滚、可审核的范围内。模型可以提出动作，但系统要决定动作是否允许；模型可以生成结论，但系统要记录结论来自哪些材料。",
+                "hard_part_close": "这也是 Claude Code 这类产品最值得借鉴的地方：不是把所有复杂度交给模型，而是在模型周围放置大量确定性工程。",
+                "risk_heading": "别把 Harness 写成工具列表",
+                "risk_body": "很多 Agent 项目把工具数量当成能力证明，但工具越多，风险面也越大。没有权限、上下文和日志治理，工具调用只会扩大不可控范围。",
+                "risk_close": "更好的评价标准是：一次错误工具调用能否被拦截，一次失败生成能否被定位，一次主题漂移能否被追到上下文来源。",
+                "practice_heading": "如果把它融入 ZhihuFlow，我会先做三件事",
+                "practice_step_1": "第一，做渐进式 Skill 加载。系统先感知可用 playbook，再按主题加载相关正文，避免所有主题共享同一套硬模板。",
+                "practice_step_2": "第二，做 Context Pack。把研究材料、素材卡片、文章蓝图、工具契约拆成 attachment，而不是混成一整段 prompt。",
+                "practice_step_3": "第三，做 Harness Report。每次生成都记录选中了哪些 skill、哪些材料被压缩、哪些机制参与了本次运行，方便复盘和面试展示。",
+                "ending_heading": "最后，Agent 产品的护城河在 Harness",
+                "ending_body": "回到最开始的问题：一个 Agent 系统的优势，不是它能不能调用一次模型，而是它能不能长期、稳定、可解释地完成一类任务。Harness 才是把 demo 变成产品的关键。",
+                "ending_action": "如果你正在做自己的 Agent 项目，建议先把 context、tool、permission、trace 和 quality gate 做清楚，再去追求更复杂的智能行为。",
+                "discussion_question": "你觉得一个 Agent Harness 里最值得优先做的是上下文管理、工具权限、子 Agent 隔离，还是运行回放？",
+            }
+        )
+    if "subagent-orchestration" in selected:
+        updated.update(
+            {
+                "title_suffix": "关键不是角色多，而是职责可治理",
+                "why_heading": "为什么多 Agent 不是多开几个角色",
+                "problem_heading": "Coordinator、Specialist、Critic 的边界在哪里",
+                "architecture_heading": "我会怎么设计共享状态和结果合并",
+                "hard_part_heading": "真正难的是冲突仲裁",
+                "risk_heading": "别让 Multi Agent 变成互相聊天",
+            }
+        )
+    if "context-offloading" in selected and "agent-harness-engineering" not in selected:
+        updated.update(
+            {
+                "title_suffix": "真正拼的是上下文预算，而不是窗口大小",
+                "why_heading": "为什么长上下文仍然会失败",
+                "problem_heading": "Context Offloading 解决的是信息流治理",
+                "architecture_heading": "我会怎么设计 Context Pack",
+                "hard_part_heading": "真正难的是知道什么可以被遗忘",
+                "risk_heading": "别把压缩做成结论丢失",
+            }
+        )
+    return updated
 
 
 def _with_profile_variant(profile: dict[str, str], topic: str, diversity_key: str) -> dict[str, str]:
@@ -622,7 +705,13 @@ def _remove_internal_markers(text: str) -> str:
 
 
 def _short_topic(topic: str) -> str:
-    return topic.split("：")[0].replace("正在", "").strip()[:24]
+    cleaned = topic.split("：")[0].replace("正在", "").strip()
+    if len(cleaned) <= 36:
+        return cleaned
+    clipped = cleaned[:35].rstrip()
+    while clipped and clipped[-1].isascii() and len(cleaned) > len(clipped) and cleaned[len(clipped)].isascii():
+        clipped = clipped[:-1].rstrip()
+    return clipped + "…"
 
 
 def _word_count_zh(text: str) -> int:
