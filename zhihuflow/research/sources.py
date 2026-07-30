@@ -171,6 +171,20 @@ class ResearchScout:
 
 def infer_topic(title: str, seed: str) -> str:
     lowered = title.lower()
+    seed_lowered = seed.lower()
+    if "dynamic workflow" in lowered or "dynamic workflow" in seed_lowered:
+        return "Dynamic Workflow 正在让 Agent 从固定流程走向运行时自适应编排"
+    if "memory" in seed_lowered:
+        return "Agent Memory 从向量库升级为可审计的组织记忆"
+    if "context" in seed_lowered:
+        return "Context Engineering 正在成为 Agent 系统的新基础设施"
+    if "rag" in seed_lowered:
+        return "Agentic RAG 从检索增强走向可评测工作流"
+    if "coding" in seed_lowered or "code agent" in seed_lowered:
+        return "AI Coding Agent 正在从工具调用进化到工程运行时"
+    seed_topic = _topic_from_explicit_seed(seed)
+    if seed_topic:
+        return seed_topic
     if "context" in lowered and ("agent" in lowered or "llm" in lowered):
         return "Context Engineering 正在成为 Agent 系统的新基础设施"
     if "rag" in lowered and ("agent" in lowered or "evaluation" in lowered):
@@ -184,6 +198,15 @@ def infer_topic(title: str, seed: str) -> str:
     return f"{seed} 的前沿趋势：{title[:52]}"
 
 
+def _topic_from_explicit_seed(seed: str) -> str:
+    cleaned = normalize_text(seed).strip(" ：:，,。")
+    if not cleaned or cleaned in DEFAULT_SEEDS:
+        return ""
+    if len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]+", cleaned)) == 0:
+        return ""
+    return cleaned
+
+
 def make_trend_card(topic: str, refs: list[SourceRef]) -> TrendCard:
     unique_refs = dedupe_refs(refs)[:8]
     keywords = sorted({kw for ref in unique_refs for kw in extract_keywords(ref.title)})[:8]
@@ -194,7 +217,7 @@ def make_trend_card(topic: str, refs: list[SourceRef]) -> TrendCard:
     risk = 0.18 if "自动" in topic or "agent" in topic.lower() else 0.1
     return TrendCard(
         topic=topic,
-        summary=f"该话题由 {len(unique_refs)} 条近期来源共同指向，适合做成兼具技术解释和落地判断的知乎长文。",
+        summary=_public_trend_summary(topic),
         keywords=keywords,
         sources=unique_refs,
         heat_score=round(min(heat, 1.0), 3),
@@ -204,6 +227,21 @@ def make_trend_card(topic: str, refs: list[SourceRef]) -> TrendCard:
         risk_score=round(risk, 3),
         captured_at=utc_now(),
     )
+
+
+def _public_trend_summary(topic: str) -> str:
+    lowered = topic.lower()
+    if "workflow" in lowered or "编排" in topic:
+        return "越来越多 Agent 项目开始把重点放到 workflow、状态恢复、工具契约和观测能力上，单次 prompt 已经很难解释真实系统里的复杂度。"
+    if "memory" in lowered or "记忆" in topic:
+        return "Agent 记忆正在从简单保存聊天记录，转向可检索、可更新、可审计的系统能力。"
+    if "context" in lowered or "上下文" in topic:
+        return "长任务 Agent 的瓶颈正在从模型回答质量，转向上下文组织、信息压缩和证据保留。"
+    if "rag" in lowered:
+        return "RAG 的讨论正在从检索命中率，转向多步推理、评测和工作流可靠性。"
+    if "coding" in lowered or "编程" in topic:
+        return "AI 编程工具正在从补全助手，走向能理解工程上下文、调用工具并留下可复盘轨迹的开发协作者。"
+    return f"{topic} 值得关注，不是因为概念新，而是因为它开始暴露定义边界、评价方法和工程落地中的结构性问题。"
 
 
 def dedupe_refs(refs: list[SourceRef]) -> list[SourceRef]:

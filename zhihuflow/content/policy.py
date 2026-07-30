@@ -26,8 +26,8 @@ class PolicyGate:
                 findings.append(PolicyFinding(code=code, message=message, severity=RiskLevel.HIGH))
         if len(package.citations) < 2:
             findings.append(PolicyFinding(code="weak_evidence", message="引用来源不足，建议补充至少 2 个公开来源。", severity=RiskLevel.MEDIUM))
-        if "参考来源" not in package.body_markdown:
-            findings.append(PolicyFinding(code="missing_citations", message="正文缺少参考来源区。", severity=RiskLevel.MEDIUM))
+        if "## 参考来源" in package.body_markdown or "ev_" in package.body_markdown:
+            findings.append(PolicyFinding(code="public_internal_evidence", message="正文不应暴露 evidence_id 或参考来源区，证据应保留在内部 trace。", severity=RiskLevel.MEDIUM))
         ai_flavor_hits = detect_ai_flavor(package.body_markdown)
         if len(ai_flavor_hits) >= 4:
             findings.append(
@@ -44,4 +44,3 @@ class PolicyGate:
         else:
             risk = RiskLevel.LOW
         return PolicyReport(overall_risk=risk, findings=findings, approved_for_draft=risk != RiskLevel.HIGH)
-

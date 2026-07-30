@@ -18,12 +18,12 @@ DEFAULT_RESEARCH_PERSPECTIVES = [
     ResearchPerspective(
         name="papers",
         query_suffix="paper benchmark architecture evaluation",
-        claim_template="{topic} 的论文脉络重点在可评测、可复现和长任务可靠性。",
+        claim_template="{topic} 的研究脉络应重点关注概念定义、评价基准、可复现性和适用边界。",
     ),
     ResearchPerspective(
         name="engineering",
-        query_suffix="engineering system runtime memory tool calling",
-        claim_template="{topic} 的工程难点通常不在单次调用，而在运行时、工具契约和状态恢复。",
+        query_suffix="engineering system design reliability evaluation",
+        claim_template="{topic} 的工程难点通常在系统边界、协作机制、可靠性和可观测性，而不是概念本身。",
     ),
     ResearchPerspective(
         name="community",
@@ -32,8 +32,8 @@ DEFAULT_RESEARCH_PERSPECTIVES = [
     ),
     ResearchPerspective(
         name="business",
-        query_suffix="product monetization creator workflow",
-        claim_template="{topic} 只有转化成可信内容资产和可交付服务时，才可能支撑 GMV。",
+        query_suffix="product adoption use cases limitations",
+        claim_template="{topic} 只有说清真实使用场景、限制条件和可信交付边界，才可能形成可持续价值。",
     ),
 ]
 

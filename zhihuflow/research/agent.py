@@ -26,13 +26,13 @@ class ResearchAgent:
         evidence_ids = [ref.evidence_id for ref in refs[:4]]
         claims = [
             ResearchClaim(
-                claim=f"{trend.topic} 的核心变化是从单次模型调用转向可编排、可观测、可恢复的工程系统。",
+                claim=f"{trend.topic} 的核心问题应先拆成概念边界、机制假设、评价方法和工程约束，而不是直接套用既有 Agent Workflow 叙事。",
                 evidence_ids=evidence_ids,
                 confidence=0.78 if evidence_ids else 0.45,
                 status="supported" if evidence_ids else "unverified",
             ),
             ResearchClaim(
-                claim="知乎读者更容易被'为什么重要 + 怎么实现 + 有什么坑'的结构吸引，而不是新闻转述。",
+                claim=f"{trend.topic} 的写作重点应围绕为什么成立、在什么条件下失效、如何评估，而不是只做新闻转述或概念介绍。",
                 evidence_ids=evidence_ids[:2],
                 confidence=0.68 if evidence_ids else 0.4,
                 status="supported" if evidence_ids else "unverified",
@@ -48,4 +48,3 @@ class ResearchAgent:
             contradictions=[],
             missing_context=[] if len(refs) >= 3 else ["真实来源不足，建议补充人工资料或开启网络检索。"],
         )
-

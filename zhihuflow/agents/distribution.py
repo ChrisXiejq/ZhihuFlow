@@ -21,7 +21,8 @@ class DistributionAgent:
         checklist = [
             "人工确认所有技术结论都有参考来源支撑。",
             "人工确认没有承诺收益、保证 GMV、自动发布或刷量表达。",
-            "人工确认代码块和图表能被目标读者理解。",
+            "人工确认正文没有 Mermaid/PlantUML 图表；代码只在必要时出现。",
+            "人工确认文章讲清概念边界、机制链条、适用条件和局限性。",
             "人工确认标题没有夸大或制造焦虑。",
             f"质量分：{quality.overall_score:.2f}；风控：{risk_line}；编辑通过：{'是' if editorial.passed else '否'}。",
         ]

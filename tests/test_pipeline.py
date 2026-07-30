@@ -12,13 +12,13 @@ from zhihuflow.app.config import DirectorConfig
 from zhihuflow.app.director import ContentDirector
 from zhihuflow.content.policy import PolicyGate
 from zhihuflow.content.style import detect_ai_flavor
-from zhihuflow.content.writer import _has_technical_blog_elements, _word_count_zh
+from zhihuflow.content.writer import _has_academic_depth_elements, _word_count_zh
 from zhihuflow.core.schemas import ArticlePackage, FeedbackEvent, SourceRef
 from zhihuflow.ops.delivery import EmailDelivery
 from zhihuflow.ops.feedback import FeedbackIngestor
 from zhihuflow.ops.scheduler import DailyScheduler
 from zhihuflow.research.agent import ResearchAgent
-from zhihuflow.research.sources import ResearchScout, StaticSource, TrendScout
+from zhihuflow.research.sources import ResearchScout, StaticSource, TrendScout, infer_topic, make_trend_card
 from zhihuflow.research.subagents import ParallelResearchOrchestrator
 from zhihuflow.runtime.sandbox import LocalSandbox, SandboxViolation
 from zhihuflow.storage.memory import MemoryStore
@@ -55,8 +55,17 @@ class PipelineTest(unittest.TestCase):
             self.assertGreaterEqual(result.article.body_markdown.count("\n## "), 4)
             self.assertGreaterEqual(_word_count_zh(result.article.body_markdown), 1500)
             self.assertLessEqual(_word_count_zh(result.article.body_markdown), 2500)
-            self.assertIn("参考来源", result.article.body_markdown)
-            self.assertTrue(_has_technical_blog_elements(result.article.body_markdown))
+            self.assertNotIn("## 参考来源", result.article.body_markdown)
+            self.assertNotIn("ev_", result.article.body_markdown)
+            self.assertNotIn("http://", result.article.body_markdown)
+            self.assertNotIn("https://", result.article.body_markdown)
+            self.assertNotIn("近期来源共同指向", result.article.body_markdown)
+            self.assertNotIn("适合做成兼具技术解释和落地判断的知乎长文", result.article.body_markdown)
+            self.assertNotIn("值得写的原因", result.article.body_markdown)
+            self.assertNotIn("对知乎创作者来说", result.article.body_markdown)
+            self.assertNotIn("```mermaid", result.article.body_markdown.lower())
+            self.assertNotIn("```plantuml", result.article.body_markdown.lower())
+            self.assertTrue(_has_academic_depth_elements(result.article.body_markdown))
             self.assertGreater(result.quality.overall_score, 0)
             self.assertTrue(result.policy.approved_for_draft)
             self.assertTrue(result.artifacts["article_markdown"].startswith("art_"))
@@ -110,10 +119,36 @@ class PipelineTest(unittest.TestCase):
         self.assertFalse(report.approved_for_draft)
 
     def test_ai_flavor_detector_flags_template_language(self) -> None:
-        text = "首先，我们需要多维度分析。其次，这具有重要意义。最后，综上所述，需要持续优化。"
+        text = "首先，我们需要多维度分析。其次，这具有重要意义。该话题由 2 条近期来源共同指向，适合做成知乎长文。对知乎创作者来说，这是值得写的原因。最后，综上所述，需要持续优化。"
         hits = detect_ai_flavor(text)
 
         self.assertGreaterEqual(len(hits), 4)
+
+    def test_trend_summary_uses_reader_facing_language(self) -> None:
+        refs = [
+            SourceRef(title="Agent workflow orchestration and tool contracts", url="local://a", source="offline"),
+            SourceRef(title="Agent workflow runtime observability", url="local://b", source="offline"),
+        ]
+        card = make_trend_card("Agent Workflow 编排正在替代单次 Prompt 工程", refs)
+
+        self.assertNotIn("近期来源共同指向", card.summary)
+        self.assertNotIn("适合做成", card.summary)
+        self.assertIn("workflow", card.summary.lower())
+
+    def test_dynamic_workflow_topic_is_not_collapsed_to_generic_workflow(self) -> None:
+        topic = infer_topic("A runtime for dynamic workflow orchestration", "Dynamic Workflow")
+
+        self.assertEqual(topic, "Dynamic Workflow 正在让 Agent 从固定流程走向运行时自适应编排")
+
+    def test_explicit_seed_has_priority_over_source_title(self) -> None:
+        topic = infer_topic("Agent workflow orchestration and tool contracts", "Agent Memory")
+
+        self.assertEqual(topic, "Agent Memory 从向量库升级为可审计的组织记忆")
+
+    def test_explicit_new_seed_is_preserved_without_topic_branch(self) -> None:
+        topic = infer_topic("Agent workflow orchestration and tool contracts", "Multi Agent")
+
+        self.assertEqual(topic, "Multi Agent")
 
     def test_feedback_ingestor_persists_growth_signal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -174,9 +209,108 @@ class PipelineTest(unittest.TestCase):
             self.assertGreaterEqual(len(materials.cards), 1)
             self.assertTrue(blueprint.code_plans)
             self.assertTrue(blueprint.diagram_plan)
+            self.assertNotIn("mermaid", " ".join(element for section in blueprint.sections for element in section.required_elements).lower())
             self.assertTrue(editorial.revision_suggestions)
             self.assertTrue(distribution.zhihu_summary)
             self.assertTrue(distribution.review_checklist)
+            director.memory.close()
+
+    def test_article_blueprints_and_fallbacks_vary_by_topic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["dynamic workflow"])
+            dynamic_trend = make_trend_card(
+                "Dynamic Workflow 正在让 Agent 从固定流程走向运行时自适应编排",
+                [SourceRef(title="Dynamic workflow runtime", url="local://dynamic", source="offline")],
+            )
+            memory_trend = make_trend_card(
+                "Agent Memory 从向量库升级为可审计的组织记忆",
+                [SourceRef(title="Agent memory governance", url="local://memory", source="offline")],
+            )
+            dynamic_research = director.parallel_research.build_brief(dynamic_trend, config.audience, config.max_sources)
+            memory_research = director.parallel_research.build_brief(memory_trend, config.audience, config.max_sources)
+            dynamic_materials = MaterialAgent().build_board(dynamic_trend, dynamic_research)
+            memory_materials = MaterialAgent().build_board(memory_trend, memory_research)
+            dynamic_blueprint = ArchitectureAgent().design(dynamic_trend, dynamic_research, dynamic_materials, config)
+            memory_blueprint = ArchitectureAgent().design(memory_trend, memory_research, memory_materials, config)
+            dynamic_article = director.writer.write(dynamic_trend, dynamic_research, "trace_dynamic", config, dynamic_blueprint, dynamic_materials)
+            memory_article = director.writer.write(memory_trend, memory_research, "trace_memory", config, memory_blueprint, memory_materials)
+
+            dynamic_headings = [line for line in dynamic_article.body_markdown.splitlines() if line.startswith("## ")]
+            memory_headings = [line for line in memory_article.body_markdown.splitlines() if line.startswith("## ")]
+            self.assertNotEqual(dynamic_blueprint.title_candidates[0], memory_blueprint.title_candidates[0])
+            self.assertNotEqual(dynamic_headings[:4], memory_headings[:4])
+            self.assertIn("Dynamic Workflow", dynamic_article.body_markdown)
+            self.assertIn("Memory", memory_article.body_markdown)
+            self.assertNotIn("```mermaid", dynamic_article.body_markdown.lower())
+            self.assertNotIn("```mermaid", memory_article.body_markdown.lower())
+            self.assertNotIn("我会怎么把它放进真实工程流程", memory_article.body_markdown)
+            self.assertIn("从研究视角看，Memory 是状态更新问题", memory_article.body_markdown)
+            self.assertIn("可撤销性", memory_article.body_markdown)
+            self.assertNotIn("Dynamic Workflow 的价值，不是让流程图更复杂", memory_article.body_markdown)
+            director.memory.close()
+
+    def test_same_topic_fallback_can_vary_by_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["dynamic workflow"])
+            trend = make_trend_card(
+                "Dynamic Workflow 正在让 Agent 从固定流程走向运行时自适应编排",
+                [SourceRef(title="Dynamic workflow runtime", url="local://dynamic", source="offline")],
+            )
+            research = director.parallel_research.build_brief(trend, config.audience, config.max_sources)
+            materials = MaterialAgent().build_board(trend, research)
+            blueprint = ArchitectureAgent().design(trend, research, materials, config)
+            first = director.writer.write(trend, research, "trace_variant_a", config, blueprint, materials)
+            second = director.writer.write(trend, research, "trace_variant_b", config, blueprint, materials)
+            first_title = first.body_markdown.splitlines()[0]
+            second_title = second.body_markdown.splitlines()[0]
+
+            self.assertNotEqual(first_title, second_title)
+            self.assertNotEqual(
+                [line for line in first.body_markdown.splitlines() if line.startswith("## ")][:2],
+                [line for line in second.body_markdown.splitlines() if line.startswith("## ")][:2],
+            )
+            director.memory.close()
+
+    def test_generic_blueprint_does_not_reuse_dynamic_workflow_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["AI coding agent"])
+            trend = make_trend_card(
+                "AI Coding Agent 正在从工具调用进化到工程运行时",
+                [SourceRef(title="AI coding agent runtime", url="local://coding", source="offline")],
+            )
+            research = director.parallel_research.build_brief(trend, config.audience, config.max_sources)
+            materials = MaterialAgent().build_board(trend, research)
+            blueprint = ArchitectureAgent().design(trend, research, materials, config)
+            headings = [section.heading for section in blueprint.sections]
+
+            self.assertIn("先定义问题边界", blueprint.title_candidates[0])
+            self.assertNotIn("真正难的不是流程图", blueprint.title_candidates[0])
+            self.assertNotIn("为什么固定流程开始不够用了", headings)
+            self.assertTrue(any("AI Coding Agent" in heading for heading in headings))
+            director.memory.close()
+
+    def test_new_topic_fallback_does_not_reuse_workflow_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            director = make_director(Path(tmp))
+            config = DirectorConfig(seeds=["Multi Agent"])
+            trend = make_trend_card(
+                "Multi Agent",
+                [SourceRef(title="Multi-agent collaboration and evaluation", url="local://multi-agent", source="offline")],
+            )
+            research = director.parallel_research.build_brief(trend, config.audience, config.max_sources)
+            materials = MaterialAgent().build_board(trend, research)
+            blueprint = ArchitectureAgent().design(trend, research, materials, config)
+            article = director.writer.write(trend, research, "trace_new_topic", config, blueprint, materials)
+            headings = [line for line in article.body_markdown.splitlines() if line.startswith("## ")]
+
+            self.assertIn("Multi Agent", article.body_markdown)
+            self.assertTrue(_has_academic_depth_elements(article.body_markdown))
+            self.assertNotIn("Dynamic Workflow", article.body_markdown)
+            self.assertNotIn("Agent Workflow 编排正在替代单次 Prompt 工程", article.body_markdown)
+            self.assertTrue(any("Multi Agent" in heading for heading in headings))
             director.memory.close()
 
     def test_web_console_settings_are_normalized(self) -> None:

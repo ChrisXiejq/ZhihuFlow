@@ -15,6 +15,7 @@ class QualityEvaluator:
             self._evidence_metric(article, research),
             self._human_voice_metric(body),
             self._specificity_metric(body),
+            self._academic_depth_metric(body),
             self._commercial_metric(article),
             self._structure_metric(body),
         ]
@@ -37,10 +38,18 @@ class QualityEvaluator:
         return QualityMetric("human_voice", round(score, 3), f"AI 模板命中 {len(hits)} 个，第一人称判断 {first_person} 处，场景词 {scene_markers} 处。")
 
     def _specificity_metric(self, body: str) -> QualityMetric:
-        concrete = len(re.findall(r"event log|claim|trace|workflow|sandbox|memory|tool|schema|评测|证据|引用", body, flags=re.IGNORECASE))
+        concrete = len(re.findall(r"event log|claim|trace|workflow|memory|tool|schema|评测|证据|引用|机制|边界|假设|局限", body, flags=re.IGNORECASE))
         paragraphs = max(1, len([chunk for chunk in body.split("\n\n") if chunk.strip()]))
         score = min(1.0, concrete / max(5, paragraphs) * 0.9)
         return QualityMetric("specificity", round(score, 3), f"具体技术词 {concrete} 个，段落 {paragraphs} 个。")
+
+    def _academic_depth_metric(self, body: str) -> QualityMetric:
+        markers = len(re.findall(r"概念|边界|机制|假设|限制|局限|适用|框架|评测|证据|变量|因果|研究|脉络|方法", body))
+        has_boundary = bool(re.search(r"边界|局限|限制|适用", body))
+        has_mechanism = bool(re.search(r"机制|因果|变量|框架|方法", body))
+        has_table = bool(re.search(r"^\|.+\|\n\|[-: |]+\|", body, flags=re.MULTILINE))
+        score = min(1.0, markers / 14 * 0.55 + (0.15 if has_boundary else 0) + (0.15 if has_mechanism else 0) + (0.15 if has_table else 0))
+        return QualityMetric("academic_depth", round(score, 3), f"学术深度标记 {markers} 个，边界={has_boundary}，机制={has_mechanism}，表格={has_table}。")
 
     def _commercial_metric(self, article: ArticlePackage) -> QualityMetric:
         text = article.body_markdown + article.commercial_angle + article.cta
